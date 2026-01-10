@@ -53,9 +53,15 @@ impl Compiler {
     fn get_dependencies(&self, op: &Op) -> Vec<String> {
         match op {
             Op::Input { .. } => vec![],
+            Op::Constant { .. } => vec![],
             Op::Add { left, right } => vec![left.clone(), right.clone()],
             Op::Mul { left, right } => vec![left.clone(), right.clone()],
             Op::Sin { input } => vec![input.clone()],
-        }
-    }
-}
+                        Op::Transpose { input, .. } => vec![input.clone()],
+                        Op::ReduceSum { input, .. } => vec![input.clone()],
+                                                Op::MatMul { left, right } => vec![left.clone(), right.clone()],
+                                                Op::Conv { input, kernel } => vec![input.clone(), kernel.clone()],
+                                            }
+                                        }
+                                    }
+                                    

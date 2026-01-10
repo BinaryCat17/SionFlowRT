@@ -11,7 +11,7 @@ use std::process::Command;
 use std::path::Path;
 
 fn main() -> anyhow::Result<()> {
-    let asset_path = "assets/example_graph.json";
+    let asset_path = "assets/stage2_test.json";
     let gen_dir = "generated";
     let out_dir = "out";
     let log_dir = "logs";

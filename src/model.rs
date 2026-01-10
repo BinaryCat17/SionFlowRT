@@ -13,14 +13,6 @@ pub struct TensorShape {
 }
 
 impl TensorShape {
-    pub fn scalar() -> Self {
-        Self { dims: vec![] }
-    }
-    
-    pub fn is_scalar(&self) -> bool {
-        self.dims.is_empty()
-    }
-
     pub fn size(&self) -> usize {
         if self.dims.is_empty() {
             1
@@ -47,9 +39,14 @@ impl TensorShape {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Op {
     Input { name: String },
+    Constant { values: Vec<f32> },
     Add { left: String, right: String },
     Mul { left: String, right: String },
     Sin { input: String },
+    Transpose { input: String, permutation: Vec<usize> },
+    ReduceSum { input: String, axis: usize },
+    MatMul { left: String, right: String },
+    Conv { input: String, kernel: String },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
