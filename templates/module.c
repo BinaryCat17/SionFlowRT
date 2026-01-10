@@ -15,16 +15,15 @@
 {% endfor %}
 
 void execute() {
-{% for op in operations %}
-    // Node: {{ op.id }} (Shape: {{ op.shape }})
-    {% if op.is_input -%}
-    for(int i = 0; i < {{ op.size }}; ++i) buffer_{{ op.id }}[i] = 1.0f;
-    {%- else -%}
-    {{ op.loops_open }}
-    {{ op.indent }}    {{ op.body }}
-    {{ op.loops_close }}
-    {%- endif %}
-{% endfor %}
+{% for group in groups %}
+    /* --- Fusion Group (Shape: {{ group.shape }}) --- */
+{{ group.loops_open -}}
+{%- for op in group.operations %}
+    {{ group.indent }}// {{ op.id }}
+    {{ group.indent }}{{ op.body }}
+{% endfor -%}
+{{ group.loops_close }}
+{%- endfor %}
 }
 
 int main() {
@@ -32,4 +31,3 @@ int main() {
     printf("Calculation finished. Result[0]: %f\n", (double)buffer_out[0]);
     return 0;
 }
-

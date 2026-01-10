@@ -2,20 +2,16 @@
 /target/
 Cargo.lock
 
-# Проектные папки (игнорируем содержимое, но не сами папки)
-/out/*
-/logs/*
-/generated/*
+# Проектные папки (полный игнор)
+/out/
+/logs/
+/generated/
 
-# Исключения для папок (чтобы Git видел пустые папки, если мы добавим .gitkeep)
-!/out/.gitkeep
-!/logs/.gitkeep
-!/generated/.gitkeep
-
-# Временные файлы и бинарники
+# Временные файлы
 *.log
 generated_bin
 rustup.sh
 rustup-init
 curl_debug.log
 rust_install.log
+.geminiignore
