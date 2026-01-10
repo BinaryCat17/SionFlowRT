@@ -68,9 +68,12 @@ int main(int argc, char* argv[]) {
         {% if m.source.type == "Time" -%}
         buffer_{{ m.program }}_{{ m.tensor }}[0] = current_time;
         {% elif m.source.type == "ScreenUV" -%}
-        for(int i = 0; i < WIDTH * HEIGHT; ++i) {
-            buffer_{{ m.program }}_{{ m.tensor }}[i*2 + 0] = (float)(i % WIDTH) / WIDTH;
-            buffer_{{ m.program }}_{{ m.tensor }}[i*2 + 1] = (float)(i / WIDTH) / HEIGHT;
+        for(int y = 0; y < HEIGHT; ++y) {
+            for(int x = 0; x < WIDTH; ++x) {
+                int idx = (y * WIDTH + x) * 2;
+                buffer_{{ m.program }}_{{ m.tensor }}[idx + 0] = (float)x / (float)WIDTH;
+                buffer_{{ m.program }}_{{ m.tensor }}[idx + 1] = (float)y / (float)HEIGHT;
+            }
         }
         {%- endif %}{%- endfor %}
 
@@ -103,8 +106,8 @@ int main(int argc, char* argv[]) {
             float r = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 0];
             float g = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 1];
             float b = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 2];
-            float a = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 3];
-            dest[i] = (((uint8_t)(fminf(a, 1.0f)*255)) << 24) | (((uint8_t)(fminf(r, 1.0f)*255)) << 16) | (((uint8_t)(fminf(g, 1.0f)*255)) << 8) | ((uint8_t)(fminf(b, 1.0f)*255));
+            // Force Alpha to 1.0 (255)
+            dest[i] = (255u << 24) | (((uint8_t)(fmaxf(0.0f, fminf(r, 1.0f))*255)) << 16) | (((uint8_t)(fmaxf(0.0f, fminf(g, 1.0f))*255)) << 8) | ((uint8_t)(fmaxf(0.0f, fminf(b, 1.0f))*255));
         }
         SDL_UnlockTexture(texture);
         {% endif -%}{%- endfor %}
@@ -112,6 +115,21 @@ int main(int argc, char* argv[]) {
         SDL_RenderClear(renderer);
         SDL_RenderCopy(renderer, texture, NULL, NULL);
         SDL_RenderPresent(renderer);
+
+        static int frame_counter = 0;
+        if (frame_counter == 60) {
+            SDL_Surface* save_surface = SDL_CreateRGBSurface(0, WIDTH, HEIGHT, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
+            if (save_surface) {
+                SDL_RenderReadPixels(renderer, NULL, save_surface->format->format, save_surface->pixels, save_surface->pitch);
+                if (SDL_SaveBMP(save_surface, "logs/screenshot.bmp") == 0) {
+                    printf("Screenshot saved to logs/screenshot.bmp at frame 60\n");
+                } else {
+                    printf("Failed to save screenshot: %s\n", SDL_GetError());
+                }
+                SDL_FreeSurface(save_surface);
+            }
+        }
+        if (frame_counter <= 60) frame_counter++;
     }
 
     SDL_DestroyTexture(texture);

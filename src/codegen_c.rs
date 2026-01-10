@@ -83,7 +83,7 @@ impl<'a> CodegenC<'a> {
 
                 let info = NodeRenderInfo {
                     prog_id: prog_id.clone(),
-                    node_id: node.id.clone(),
+                    node_id: self.sanitize_id(&node.id),
                     c_type: self.map_dtype(&node.dtype).to_string(),
                     size_expr: node.shape.size_c_expr(),
                     init_values,
@@ -96,7 +96,6 @@ impl<'a> CodegenC<'a> {
             nodes_map.insert(prog_id.clone(), prog_nodes);
 
             let mut current_group: Option<GroupRenderInfo> = None;
-// ... (остальной код создания групп без изменений) ...
 
             for &idx in &prog.execution_order {
                 let node = &prog.compiler.graph[idx];
@@ -125,7 +124,13 @@ impl<'a> CodegenC<'a> {
                     } else if matches!(node.op, Op::Conv { .. }) {
                         all_groups.push(self.create_conv_group(prog_id, &info));
                     } else {
-                        current_group = Some(self.create_group(prog_id, &info));
+                        let mut g = self.create_group(prog_id, &info);
+                        let body = self.generate_body_expr(prog_id, &info);
+                        g.operations.push(OpRenderInfo {
+                            id: node.id.clone(),
+                            body,
+                        });
+                        current_group = Some(g);
                     }
                     continue;
                 }
@@ -189,6 +194,10 @@ impl<'a> CodegenC<'a> {
         }
     }
 
+    fn sanitize_id(&self, id: &str) -> String {
+        id.replace("/", "__")
+    }
+
     fn create_reduction_group(&self, prog_id: &str, node: &NodeInfo) -> GroupRenderInfo {
         if let Op::ReduceSum { input, axis } = &node.op {
             let in_node = self.get_node_by_id(prog_id, input);
@@ -214,7 +223,7 @@ impl<'a> CodegenC<'a> {
             
             let indent = "    ".repeat(current_indent_level);
             let target_idx = self.generate_target_index_expr(node, rank, axis);
-            writeln!(loops_open, "{}buffer_{}_{}[{}] = 0.0f;", indent, prog_id, node.node_id, target_idx).unwrap();
+            writeln!(loops_open, "{}buffer_{}_{}[{}] = 0.0f;", indent, prog_id, self.sanitize_id(&node.node_id), target_idx).unwrap();
             
             writeln!(loops_open, "{}for(int i{} = 0; i{} < {}; ++i{}) {{", 
                 indent, axis, axis, in_dims[*axis], axis).unwrap();
@@ -225,7 +234,7 @@ impl<'a> CodegenC<'a> {
             
             let in_idx = self.generate_index_expr(prog_id, in_node, rank, &in_dims);
             let body = format!("{}buffer_{}_{}[{}] += buffer_{}_{}[{}];", 
-                "    ", prog_id, node.node_id, target_idx, prog_id, input, in_idx);
+                "    ", prog_id, self.sanitize_id(&node.node_id), target_idx, prog_id, self.sanitize_id(input), in_idx);
 
             return GroupRenderInfo {
                 prog_id: prog_id.to_string(),
@@ -263,11 +272,11 @@ impl<'a> CodegenC<'a> {
             
             let l_idx = format!("i * ({}) + k * ({})", l_strides[0], l_strides[1]);
             let r_idx = format!("k * ({}) + j * ({})", r_strides[0], r_strides[1]);
-            let body = format!("acc += buffer_{}_{}[{}] * buffer_{}_{}[{}];", prog_id, left, l_idx, prog_id, right, r_idx);
+            let body = format!("acc += buffer_{}_{}[{}] * buffer_{}_{}[{}];", prog_id, self.sanitize_id(left), l_idx, prog_id, self.sanitize_id(right), r_idx);
             let target_idx = format!("i * ({}) + j * ({})", node.strides[0], node.strides[1]);
 
             writeln!(loops_close, "        }}").unwrap();
-            writeln!(loops_close, "        buffer_{}_{}[{}] = acc;", prog_id, node.node_id, target_idx).unwrap();
+            writeln!(loops_close, "        buffer_{}_{}[{}] = acc;", prog_id, self.sanitize_id(&node.node_id), target_idx).unwrap();
             writeln!(loops_close, "    }}").unwrap();
             writeln!(loops_close, "}}").unwrap();
 
@@ -338,7 +347,7 @@ impl<'a> CodegenC<'a> {
                 .collect::<Vec<_>>().join(" + ");
             let ker_idx = if ker_idx.is_empty() { "0".into() } else { ker_idx };
 
-            let body = format!("acc += buffer_{}_{}[{}] * buffer_{}_{}[{}];", prog_id, input, in_idx, prog_id, kernel, ker_idx);
+            let body = format!("acc += buffer_{}_{}[{}] * buffer_{}_{}[{}];", prog_id, self.sanitize_id(input), in_idx, prog_id, self.sanitize_id(kernel), ker_idx);
             writeln!(loops_open, "{}{}", inner_indent, body).unwrap();
             
             for kd in (0..ker_rank).rev() {
@@ -346,7 +355,7 @@ impl<'a> CodegenC<'a> {
                 writeln!(loops_open, "{}}}", loop_indent).unwrap();
             }
 
-            writeln!(loops_open, "{}buffer_{}_{}[{}] = acc;", outer_indent, prog_id, node.node_id, target_idx).unwrap();
+            writeln!(loops_open, "{}buffer_{}_{}[{}] = acc;", outer_indent, prog_id, self.sanitize_id(&node.node_id), target_idx).unwrap();
 
             return GroupRenderInfo {
                 prog_id: prog_id.to_string(),
@@ -378,55 +387,40 @@ impl<'a> CodegenC<'a> {
             .collect::<Vec<_>>().join(" + ");
         if target_idx.is_empty() { target_idx = "0".into(); }
 
-        match &node.op {
-            Op::Input { .. } | Op::Constant { .. } | Op::ReduceSum { .. } | Op::MatMul { .. } | Op::Conv { .. } => {
-                "".into() 
+        if let Op::Transpose { input, permutation } = &node.op {
+            let in_node = self.get_node_by_id(prog_id, input);
+            let in_strides = in_node.get_effective_strides_c_expr();
+            let mut in_parts = Vec::new();
+            for (n, &p_n) in permutation.iter().enumerate() {
+                in_parts.push(format!("i{} * ({})", n, in_strides[p_n]));
             }
-            Op::Add { left, right } | Op::Mul { left, right } => {
-                let op_char = if let Op::Add {..} = node.op { "+" } else { "*" };
-                let left_node = self.get_node_by_id(prog_id, left);
-                let right_node = self.get_node_by_id(prog_id, right);
-                let l_idx = self.generate_index_expr(prog_id, left_node, rank, &node.dims);
-                let r_idx = self.generate_index_expr(prog_id, right_node, rank, &node.dims);
-                
-                format!("buffer_{}_{}[{}] = buffer_{}_{}[{}] {} buffer_{}_{}[{}];", 
-                    prog_id, node.node_id, target_idx, prog_id, left, l_idx, op_char, prog_id, right, r_idx)
-            }
-            Op::Sin { input } => {
-                let in_node = self.get_node_by_id(prog_id, input);
-                let in_idx = self.generate_index_expr(prog_id, in_node, rank, &node.dims);
-                format!("buffer_{}_{}[{}] = sinf(buffer_{}_{}[{}]);", prog_id, node.node_id, target_idx, prog_id, input, in_idx)
-            }
-            Op::Transpose { input, permutation } => {
-                let in_node = self.get_node_by_id(prog_id, input);
-                let in_strides = in_node.get_effective_strides_c_expr();
-                let mut in_parts = Vec::new();
-                for (n, &p_n) in permutation.iter().enumerate() {
-                    in_parts.push(format!("i{} * ({})", n, in_strides[p_n]));
-                }
-                let in_idx = if in_parts.is_empty() { "0".into() } else { in_parts.join(" + ") };
-                format!("buffer_{}_{}[{}] = buffer_{}_{}[{}];", prog_id, node.node_id, target_idx, prog_id, input, in_idx)
-            }
+            let in_idx = if in_parts.is_empty() { "0".into() } else { in_parts.join(" + ") };
+            return format!("buffer_{}_{}[{}] = buffer_{}_{}[{}];", 
+                prog_id, self.sanitize_id(&node.node_id), target_idx, prog_id, self.sanitize_id(input), in_idx);
         }
+
+        node.op.generate_c_body(prog_id, &self.sanitize_id(&node.node_id), &target_idx, |dep_id| {
+            let dep_node = self.get_node_by_id(prog_id, dep_id);
+            self.generate_index_expr(prog_id, dep_node, rank, &node.dims)
+        })
     }
 
-    fn generate_index_expr(&self, _prog_id: &str, node: &crate::model::Node, target_rank: usize, target_dims: &[String]) -> String {
+    fn generate_index_expr(&self, _prog_id: &str, node: &crate::model::Node, target_rank: usize, _target_dims: &[String]) -> String {
         let rank = node.shape.rank();
         let strides = node.get_effective_strides_c_expr();
         let mut parts = Vec::new();
 
-        for d in 0..target_rank {
-            let in_dim_idx = (d as i32) - (target_rank as i32 - rank as i32);
-            if in_dim_idx >= 0 {
-                let in_d = in_dim_idx as usize;
-                let node_dim_str = node.shape.dims[in_d].to_string();
-                let stride = if node_dim_str == target_dims[d] {
-                    strides[in_d].clone()
-                } else {
-                    "0".into()
+        for d in 0..rank {
+            if d < target_rank {
+                // Если размерность исходного тензора равна 1, то для любой целевой 
+                // размерности индекс в этом измерении будет 0.
+                let is_one = match &node.shape.dims[d] {
+                    crate::model::Dimension::Value(1) => true,
+                    _ => false,
                 };
-                if stride != "0" {
-                    parts.push(format!("i{} * ({})", d, stride));
+
+                if !is_one {
+                    parts.push(format!("i{} * ({})", d, strides[d]));
                 }
             }
         }

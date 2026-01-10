@@ -1,4 +1,7 @@
 {
+  "imports": {
+    "std": "assets/lib"
+  },
   "nodes": [
     {
       "id": "brush_input",
@@ -13,20 +16,20 @@
       "dtype": "F32"
     },
     {
-      "id": "decay",
-      "op": { "Constant": { "values": [0.98] } },
-      "shape": { "dims": [] },
+      "id": "lerp_factor",
+      "op": { "Constant": { "values": [0.1] } },
+      "shape": { "dims": [1] },
       "dtype": "F32"
     },
     {
-      "id": "faded_prev",
-      "op": { "Mul": { "left": "prev_frame", "right": "decay" } },
+      "id": "res",
+      "op": { "Call": { "subgraph": "std/math/lerp", "inputs": { "a": "prev_frame", "b": "brush_input", "t": "lerp_factor" } } },
       "shape": { "dims": ["_", "_", 4] },
       "dtype": "F32"
     },
     {
       "id": "final_output",
-      "op": { "Add": { "left": "brush_input", "right": "faded_prev" } },
+      "op": { "Output": { "name": "default", "input": "res" } },
       "shape": { "dims": ["_", "_", 4] },
       "dtype": "F32"
     }

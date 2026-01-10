@@ -14,6 +14,8 @@ pub struct ProgramEntry {
     pub path: String,
 }
 
+use crate::model::Dimension;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum MappingSource {
@@ -31,6 +33,7 @@ pub struct Mapping {
     pub program: String,
     pub tensor: String,
     pub source: MappingSource,
+    pub shape: Option<Vec<Dimension>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

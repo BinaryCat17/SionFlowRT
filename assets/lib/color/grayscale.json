@@ -1,0 +1,28 @@
+{
+  "nodes": [
+    {
+      "id": "rgb",
+      "op": { "Input": { "name": "rgb" } },
+      "shape": { "dims": ["_", "_", 3] },
+      "dtype": "F32"
+    },
+    {
+      "id": "weights",
+      "op": { "Constant": { "values": [0.299, 0.587, 0.114] } },
+      "shape": { "dims": [3] },
+      "dtype": "F32"
+    },
+    {
+      "id": "weighted",
+      "op": { "Mul": { "left": "rgb", "right": "weights" } },
+      "shape": { "dims": ["_", "_", 3] },
+      "dtype": "F32"
+    },
+    {
+      "id": "output",
+      "op": { "ReduceSum": { "input": "weighted", "axis": 2 } },
+      "shape": { "dims": ["_", "_"] },
+      "dtype": "F32"
+    }
+  ]
+}

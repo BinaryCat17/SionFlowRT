@@ -1,62 +1,32 @@
 {
   "nodes": [
     {
-      "id": "mouse_pos",
-      "op": { "Input": { "name": "mouse_pos" } },
-      "shape": { "dims": [2] },
-      "dtype": "F32"
-    },
-    {
-      "id": "time",
-      "op": { "Input": { "name": "time" } },
-      "shape": { "dims": [1] },
-      "dtype": "F32"
-    },
-    {
       "id": "uv",
       "op": { "Input": { "name": "uv" } },
       "shape": { "dims": ["_", "_", 2] },
       "dtype": "F32"
     },
     {
-      "id": "freq",
-      "op": { "Constant": { "values": [10.0] } },
-      "shape": { "dims": [] },
-      "dtype": "F32"
-    },
-    {
-      "id": "mouse_x",
-      "op": { "ReduceSum": { "input": "mouse_pos", "axis": 0 } },
-      "shape": { "dims": [] },
-      "dtype": "F32"
-    },
-    {
-      "id": "u_coord",
-      "op": { "ReduceSum": { "input": "uv", "axis": 2 } },
+      "id": "u_channel",
+      "op": { "Transpose": { "input": "uv", "permutation": [0, 1] } },
       "shape": { "dims": ["_", "_"] },
       "dtype": "F32"
     },
     {
-      "id": "phase",
-      "op": { "Add": { "left": "u_coord", "right": "time" } },
+      "id": "color_2d",
+      "op": { "Mul": { "left": "u_channel", "right": "u_channel" } },
       "shape": { "dims": ["_", "_"] },
       "dtype": "F32"
     },
     {
-      "id": "pattern",
-      "op": { "Sin": { "input": "phase" } },
-      "shape": { "dims": ["_", "_"] },
+      "id": "color_4d",
+      "op": { "Broadcast": { "input": "color_2d" } },
+      "shape": { "dims": ["_", "_", 4] },
       "dtype": "F32"
     },
     {
-      "id": "intensity",
-      "op": { "Constant": { "values": [0.05] } },
-      "shape": { "dims": [] },
-      "dtype": "F32"
-    },
-    {
-      "id": "output",
-      "op": { "Mul": { "left": "pattern", "right": "intensity" } },
+      "id": "output_node",
+      "op": { "Output": { "name": "default", "input": "color_4d" } },
       "shape": { "dims": ["_", "_", 4] },
       "dtype": "F32"
     }
