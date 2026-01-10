@@ -1,0 +1,6 @@
+# Разрешаем Gemini видеть сгенерированные файлы и логи
+!/generated/
+!/logs/
+!/out/
+!*.log
+!Cargo.lock
