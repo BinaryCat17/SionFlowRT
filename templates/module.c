@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdint.h>
+#include <stdbool.h>
+#include <string.h>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -9,13 +11,21 @@
 #define PARALLEL
 #endif
 
+/* --- Parameters --- */
+{% for name, value in parameters -%}
+#define {{ name }} {{ value }}
+{% endfor %}
+
 /* --- Tensor Buffers --- */
 {% for node in nodes -%}
-#define buffer_{{ node.id }}_SIZE {{ node.size }}
+#define buffer_{{ node.prog_id }}_{{ node.node_id }}_SIZE ({{ node.size_expr }})
 {% if node.init_values -%}
-{{ node.c_type }} buffer_{{ node.id }}[] = { {{ node.init_values | join(sep=", ") }} };
+{{ node.c_type }} buffer_{{ node.prog_id }}_{{ node.node_id }}[] = { {{ node.init_values | join(sep=", ") }} };
 {%- else -%}
-{{ node.c_type }} buffer_{{ node.id }}[{{ node.size }}];
+{{ node.c_type }} buffer_{{ node.prog_id }}_{{ node.node_id }}[buffer_{{ node.prog_id }}_{{ node.node_id }}_SIZE];
+{%- endif %}
+{% if node.is_stateful -%}
+{{ node.c_type }} buffer_{{ node.prog_id }}_{{ node.node_id }}_swap[buffer_{{ node.prog_id }}_{{ node.node_id }}_SIZE];
 {%- endif %}
 {% endfor %}
 
@@ -23,7 +33,7 @@
 void execute() {
 {%- for group in groups %}
 
-    /* --- Fusion Group (Shape: {{ group.shape }}) --- */
+    /* --- Fusion Group (Prog: {{ group.prog_id }}, Shape: {{ group.shape }}) --- */
 {{ group.loops_open -}}
 {%- for op in group.operations %}
     {{ group.indent }}// {{ op.id }}
@@ -31,20 +41,4 @@ void execute() {
 {%- endfor %}
 {{ group.loops_close -}}
 {%- endfor %}
-}
-
-int main() {
-    execute();
-
-#ifdef buffer_out_SIZE
-    printf("Calculation finished. Results (out): ");
-    for(int i = 0; i < (buffer_out_SIZE < 10 ? buffer_out_SIZE : 10); ++i) {
-        printf("%f ", (double)buffer_out[i]);
-    }
-    printf("\n");
-#else
-    printf("Calculation finished.\n");
-#endif
-
-    return 0;
 }

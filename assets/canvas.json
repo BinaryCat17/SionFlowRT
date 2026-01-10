@@ -1,0 +1,34 @@
+{
+  "nodes": [
+    {
+      "id": "brush_input",
+      "op": { "Input": { "name": "brush_input" } },
+      "shape": { "dims": ["_", "_", 4] },
+      "dtype": "F32"
+    },
+    {
+      "id": "prev_frame",
+      "op": { "Input": { "name": "prev_frame" } },
+      "shape": { "dims": ["_", "_", 4] },
+      "dtype": "F32"
+    },
+    {
+      "id": "decay",
+      "op": { "Constant": { "values": [0.98] } },
+      "shape": { "dims": [] },
+      "dtype": "F32"
+    },
+    {
+      "id": "faded_prev",
+      "op": { "Mul": { "left": "prev_frame", "right": "decay" } },
+      "shape": { "dims": ["_", "_", 4] },
+      "dtype": "F32"
+    },
+    {
+      "id": "final_output",
+      "op": { "Add": { "left": "brush_input", "right": "faded_prev" } },
+      "shape": { "dims": ["_", "_", 4] },
+      "dtype": "F32"
+    }
+  ]
+}

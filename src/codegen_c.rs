@@ -1,31 +1,42 @@
-use crate::model::{Op, DataType};
-use petgraph::graph::NodeIndex;
-use crate::compiler::Compiler;
+use crate::model::Op;
+use crate::manifest::{Manifest, MappingSource};
+use crate::CompiledProgram;
 use tera::{Tera, Context};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fmt::Write;
 
 pub struct CodegenC<'a> {
-    compiler: &'a Compiler,
+    programs: HashMap<String, CompiledProgram>,
+    manifest: &'a Manifest,
     tera: Tera,
 }
 
 #[derive(Serialize)]
-struct NodeRenderInfo {
-    id: String,
-    c_type: String,
-    size: usize,
-    init_values: Option<Vec<f32>>,
+pub struct GeneratedCode {
+    pub module: String,
+    pub runtime: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
+struct NodeRenderInfo {
+    prog_id: String,
+    node_id: String,
+    c_type: String,
+    size_expr: String,
+    init_values: Option<Vec<f32>>,
+    is_stateful: bool,
+}
+
+#[derive(Serialize, Clone)]
 struct OpRenderInfo {
     id: String,
     body: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct GroupRenderInfo {
+    prog_id: String,
     shape: String,
     loops_open: String,
     loops_close: String,
@@ -35,112 +46,127 @@ struct GroupRenderInfo {
 
 #[derive(Clone)]
 struct NodeInfo {
-    id: String,
-    dims: Vec<usize>,
-    strides: Vec<usize>,
+    node_id: String,
+    dims: Vec<String>,
+    strides: Vec<String>,
     op: Op,
 }
 
 impl<'a> CodegenC<'a> {
-    pub fn new(compiler: &'a Compiler) -> Self {
+    pub fn new(programs: HashMap<String, CompiledProgram>, manifest: &'a Manifest) -> Self {
         let mut tera = Tera::default();
         tera.add_template_file("templates/module.c", Some("module")).expect("Failed to load template");
-        Self { compiler, tera }
+        tera.add_template_file("templates/sdl2_runtime.c", Some("sdl2_runtime")).expect("Failed to load template");
+        tera.add_template_file("templates/headless_runtime.c", Some("headless_runtime")).expect("Failed to load template");
+        Self { programs, manifest, tera }
     }
 
-    pub fn generate(&self, execution_order: &[NodeIndex]) -> anyhow::Result<String> {
+    pub fn generate(&self, runtime_type: &str) -> anyhow::Result<GeneratedCode> {
         let mut nodes_info = Vec::new();
-        let mut groups: Vec<GroupRenderInfo> = Vec::new();
+        let mut all_groups: Vec<GroupRenderInfo> = Vec::new();
+        let mut nodes_map: HashMap<String, HashMap<String, NodeRenderInfo>> = HashMap::new();
 
-        // 1. Собираем информацию о всех узлах для объявлений буферов
-        for &idx in execution_order {
-            let node = &self.compiler.graph[idx];
-            let init_values = if let Op::Constant { values } = &node.op {
-                Some(values.clone())
-            } else {
-                None
-            };
-
-            nodes_info.push(NodeRenderInfo {
-                id: node.id.clone(),
-                c_type: self.map_dtype(&node.dtype).to_string(),
-                size: node.shape.size(),
-                init_values,
-            });
-        }
-
-        // 2. Группируем операции для Fusion
-        let mut current_group: Option<GroupRenderInfo> = None;
-
-        for &idx in execution_order {
-            let node = &self.compiler.graph[idx];
-            let info = self.get_node_info(&node.id);
-            
-            // Константы и входы не нуждаются в циклах вычислений, 
-            // так как константы инициализируются при объявлении,
-            // а входы заполняются извне.
-            if let Op::Constant { .. } | Op::Input { .. } = &node.op {
-                continue;
-            }
-
-            let shape_str = format!("{:?}", node.shape.dims);
-
-            // Решаем, можно ли добавить узел в текущую группу
-            // Для ReduceSum, MatMul и Conv мы пока создаем отдельные группы
-            let is_special = matches!(node.op, Op::ReduceSum { .. } | Op::MatMul { .. } | Op::Conv { .. });
-            let can_fuse = match &current_group {
-                Some(g) => g.shape == shape_str && !is_special,
-                None => false,
-            };
-
-            if !can_fuse {
-                if let Some(g) = current_group.take() {
-                    groups.push(g);
-                }
-                
-                if matches!(node.op, Op::ReduceSum { .. }) {
-                    groups.push(self.create_reduction_group(&info));
-                    continue;
-                } else if matches!(node.op, Op::MatMul { .. }) {
-                    groups.push(self.create_matmul_group(&info));
-                    continue;
-                } else if matches!(node.op, Op::Conv { .. }) {
-                    groups.push(self.create_conv_group(&info));
-                    continue;
+        for (prog_id, prog) in &self.programs {
+            let mut prog_nodes = HashMap::new();
+            for idx in prog.compiler.graph.node_indices() {
+                let node = &prog.compiler.graph[idx];
+                let init_values = if let Op::Constant { values } = &node.op {
+                    Some(values.clone())
                 } else {
-                    current_group = Some(self.create_group(&info));
+                    None
+                };
+
+                let is_stateful = self.manifest.mappings.iter().any(|m| {
+                    matches!(&m.source, MappingSource::Link { program, output } 
+                        if program == prog_id && output == &node.id && m.program == *prog_id)
+                });
+
+                let info = NodeRenderInfo {
+                    prog_id: prog_id.clone(),
+                    node_id: node.id.clone(),
+                    c_type: self.map_dtype(&node.dtype).to_string(),
+                    size_expr: node.shape.size_c_expr(),
+                    init_values,
+                    is_stateful,
+                };
+                
+                nodes_info.push(info.clone());
+                prog_nodes.insert(node.id.clone(), info);
+            }
+            nodes_map.insert(prog_id.clone(), prog_nodes);
+
+            let mut current_group: Option<GroupRenderInfo> = None;
+// ... (остальной код создания групп без изменений) ...
+
+            for &idx in &prog.execution_order {
+                let node = &prog.compiler.graph[idx];
+                let info = self.get_node_info(prog_id, &node.id);
+                
+                if let Op::Constant { .. } | Op::Input { .. } = &node.op {
+                    continue;
+                }
+
+                let shape_str = format!("{:?}", info.dims);
+                let is_special = matches!(node.op, Op::ReduceSum { .. } | Op::MatMul { .. } | Op::Conv { .. });
+                let can_fuse = match &current_group {
+                    Some(g) => g.shape == shape_str && !is_special,
+                    None => false,
+                };
+
+                if !can_fuse {
+                    if let Some(g) = current_group.take() {
+                        all_groups.push(g);
+                    }
+                    
+                    if matches!(node.op, Op::ReduceSum { .. }) {
+                        all_groups.push(self.create_reduction_group(prog_id, &info));
+                    } else if matches!(node.op, Op::MatMul { .. }) {
+                        all_groups.push(self.create_matmul_group(prog_id, &info));
+                    } else if matches!(node.op, Op::Conv { .. }) {
+                        all_groups.push(self.create_conv_group(prog_id, &info));
+                    } else {
+                        current_group = Some(self.create_group(prog_id, &info));
+                    }
+                    continue;
+                }
+
+                if let Some(ref mut g) = current_group {
+                    let body = self.generate_body_expr(prog_id, &info);
+                    g.operations.push(OpRenderInfo {
+                        id: node.id.clone(),
+                        body,
+                    });
                 }
             }
 
-            if let Some(ref mut g) = current_group {
-                let body = self.generate_body_expr(&info);
-                g.operations.push(OpRenderInfo {
-                    id: node.id.clone(),
-                    body,
-                });
+            if let Some(g) = current_group {
+                all_groups.push(g);
             }
-        }
-
-        if let Some(g) = current_group {
-            groups.push(g);
         }
 
         let mut context = Context::new();
         context.insert("nodes", &nodes_info);
-        context.insert("groups", &groups);
+        context.insert("nodes_map", &nodes_map);
+        context.insert("groups", &all_groups);
+        context.insert("mappings", &self.manifest.mappings);
+        
+        let empty_params = HashMap::new();
+        let params = self.manifest.parameters.as_ref().unwrap_or(&empty_params);
+        context.insert("parameters", &params);
 
-        Ok(self.tera.render("module", &context)?)
+        let module = self.tera.render("module", &context)?;
+        let runtime = self.tera.render(runtime_type, &context)?;
+
+        Ok(GeneratedCode { module, runtime })
     }
 
-    fn create_group(&self, target: &NodeInfo) -> GroupRenderInfo {
+    fn create_group(&self, prog_id: &str, target: &NodeInfo) -> GroupRenderInfo {
         let rank = target.dims.len();
         let mut loops_open = String::new();
         let mut loops_close = String::new();
         let indent = "    ".repeat(rank);
 
-        if rank == 0 {
-            // Скаляры
-        } else {
+        if rank > 0 {
             for d in 0..rank {
                 let loop_indent = "    ".repeat(d);
                 if d == 0 { writeln!(loops_open, "{}PARALLEL", loop_indent).unwrap(); }
@@ -154,6 +180,7 @@ impl<'a> CodegenC<'a> {
         }
 
         GroupRenderInfo {
+            prog_id: prog_id.to_string(),
             shape: format!("{:?}", target.dims),
             loops_open,
             loops_close,
@@ -162,17 +189,16 @@ impl<'a> CodegenC<'a> {
         }
     }
 
-    fn create_reduction_group(&self, node: &NodeInfo) -> GroupRenderInfo {
+    fn create_reduction_group(&self, prog_id: &str, node: &NodeInfo) -> GroupRenderInfo {
         if let Op::ReduceSum { input, axis } = &node.op {
-            let in_node = self.get_node_by_id(input);
-            let in_dims = &in_node.shape.dims;
-            let rank = in_dims.len();
+            let in_node = self.get_node_by_id(prog_id, input);
+            let in_dims: Vec<String> = in_node.shape.dims.iter().map(|d| d.to_string()).collect();
+            let rank = in_node.shape.rank();
             
             let mut loops_open = String::new();
             let mut loops_close = String::new();
-
-            // Внешние циклы по всем осям, кроме axis
             let mut current_indent_level = 0;
+
             for d in 0..rank {
                 if d == *axis { continue; }
                 let loop_indent = "    ".repeat(current_indent_level);
@@ -187,12 +213,9 @@ impl<'a> CodegenC<'a> {
             }
             
             let indent = "    ".repeat(current_indent_level);
-            
-            // Инициализация аккумулятора
             let target_idx = self.generate_target_index_expr(node, rank, axis);
-            writeln!(loops_open, "{}buffer_{}[{}] = 0.0f;", indent, node.id, target_idx).unwrap();
+            writeln!(loops_open, "{}buffer_{}_{}[{}] = 0.0f;", indent, prog_id, node.node_id, target_idx).unwrap();
             
-            // Внутренний цикл по оси редукции
             writeln!(loops_open, "{}for(int i{} = 0; i{} < {}; ++i{}) {{", 
                 indent, axis, axis, in_dims[*axis], axis).unwrap();
             
@@ -200,32 +223,34 @@ impl<'a> CodegenC<'a> {
             writeln!(inner_close, "{}}}", indent).unwrap();
             loops_close.insert_str(0, &inner_close);
             
-            let in_idx = self.generate_index_expr(in_node, rank, in_dims);
-            let body = format!("{}buffer_{}[{}] += buffer_{}[{}];", 
-                "    ", node.id, target_idx, input, in_idx);
+            let in_idx = self.generate_index_expr(prog_id, in_node, rank, &in_dims);
+            let body = format!("{}buffer_{}_{}[{}] += buffer_{}_{}[{}];", 
+                "    ", prog_id, node.node_id, target_idx, prog_id, input, in_idx);
 
             return GroupRenderInfo {
+                prog_id: prog_id.to_string(),
                 shape: format!("Reduction of {} axis {}", input, axis),
                 loops_open,
                 loops_close,
                 indent: indent + "    ",
-                operations: vec![OpRenderInfo { id: node.id.clone(), body }],
+                operations: vec![OpRenderInfo { id: node.node_id.clone(), body }],
             };
         }
         panic!("Not a reduction op");
     }
 
-    fn create_matmul_group(&self, node: &NodeInfo) -> GroupRenderInfo {
+    fn create_matmul_group(&self, prog_id: &str, node: &NodeInfo) -> GroupRenderInfo {
         if let Op::MatMul { left, right } = &node.op {
-            let left_node = self.get_node_by_id(left);
-            let right_node = self.get_node_by_id(right);
-            
-            let m = left_node.shape.dims[0];
-            let k = left_node.shape.dims[1];
-            let n = right_node.shape.dims[1];
-            
-            let l_strides = left_node.get_effective_strides();
-            let r_strides = right_node.get_effective_strides();
+            let left_node = self.get_node_by_id(prog_id, left);
+            let right_node = self.get_node_by_id(prog_id, right);
+            let left_dims: Vec<String> = left_node.shape.dims.iter().map(|d| d.to_string()).collect();
+            let right_dims: Vec<String> = right_node.shape.dims.iter().map(|d| d.to_string()).collect();
+
+            let m = &left_dims[0];
+            let k_dim = &left_dims[1];
+            let n = &right_dims[1];
+            let l_strides = left_node.get_effective_strides_c_expr();
+            let r_strides = right_node.get_effective_strides_c_expr();
 
             let mut loops_open = String::new();
             let mut loops_close = String::new();
@@ -234,36 +259,36 @@ impl<'a> CodegenC<'a> {
             writeln!(loops_open, "for(int i = 0; i < {}; ++i) {{", m).unwrap();
             writeln!(loops_open, "    for(int j = 0; j < {}; ++j) {{", n).unwrap();
             writeln!(loops_open, "        float acc = 0.0f;").unwrap();
-            writeln!(loops_open, "        for(int k = 0; k < {}; ++k) {{", k).unwrap();
+            writeln!(loops_open, "        for(int k = 0; k < {}; ++k) {{", k_dim).unwrap();
             
-            let l_idx = format!("i * {} + k * {}", l_strides[0], l_strides[1]);
-            let r_idx = format!("k * {} + j * {}", r_strides[0], r_strides[1]);
-            
-            let body = format!("acc += buffer_{}[{}] * buffer_{}[{}];", left, l_idx, right, r_idx);
-            
-            let target_idx = format!("i * {} + j * {}", node.strides[0], node.strides[1]);
+            let l_idx = format!("i * ({}) + k * ({})", l_strides[0], l_strides[1]);
+            let r_idx = format!("k * ({}) + j * ({})", r_strides[0], r_strides[1]);
+            let body = format!("acc += buffer_{}_{}[{}] * buffer_{}_{}[{}];", prog_id, left, l_idx, prog_id, right, r_idx);
+            let target_idx = format!("i * ({}) + j * ({})", node.strides[0], node.strides[1]);
 
             writeln!(loops_close, "        }}").unwrap();
-            writeln!(loops_close, "        buffer_{}[{}] = acc;", node.id, target_idx).unwrap();
+            writeln!(loops_close, "        buffer_{}_{}[{}] = acc;", prog_id, node.node_id, target_idx).unwrap();
             writeln!(loops_close, "    }}").unwrap();
             writeln!(loops_close, "}}").unwrap();
 
             return GroupRenderInfo {
+                prog_id: prog_id.to_string(),
                 shape: format!("MatMul {} x {}", left, right),
                 loops_open,
                 loops_close,
                 indent: "            ".into(),
-                operations: vec![OpRenderInfo { id: node.id.clone(), body }],
+                operations: vec![OpRenderInfo { id: node.node_id.clone(), body }],
             };
         }
         panic!("Not a matmul op");
     }
 
-    fn create_conv_group(&self, node: &NodeInfo) -> GroupRenderInfo {
+    fn create_conv_group(&self, prog_id: &str, node: &NodeInfo) -> GroupRenderInfo {
         if let Op::Conv { input, kernel } = &node.op {
-            let in_node = self.get_node_by_id(input);
-            let ker_node = self.get_node_by_id(kernel);
-            
+            let in_node = self.get_node_by_id(prog_id, input);
+            let ker_node = self.get_node_by_id(prog_id, kernel);
+            let _in_dims: Vec<String> = in_node.shape.dims.iter().map(|d| d.to_string()).collect();
+            let ker_dims: Vec<String> = ker_node.shape.dims.iter().map(|d| d.to_string()).collect();
             let in_rank = in_node.shape.rank();
             let ker_rank = ker_node.shape.rank();
             let out_rank = node.dims.len();
@@ -271,7 +296,6 @@ impl<'a> CodegenC<'a> {
             let mut loops_open = String::new();
             let mut loops_close = String::new();
 
-            // Внешние циклы по выходному тензору
             for d in 0..out_rank {
                 let loop_indent = "    ".repeat(d);
                 if d == 0 { writeln!(loops_open, "{}PARALLEL", loop_indent).unwrap(); }
@@ -285,55 +309,50 @@ impl<'a> CodegenC<'a> {
 
             let outer_indent = "    ".repeat(out_rank);
             let target_idx = (0..out_rank)
-                .map(|d| format!("i{} * {}", d, node.strides[d]))
+                .map(|d| format!("i{} * ({})", d, node.strides[d]))
                 .collect::<Vec<_>>().join(" + ");
             
             writeln!(loops_open, "{}float acc = 0.0f;", outer_indent).unwrap();
 
-            // Внутренние циклы по ядру
             for kd in 0..ker_rank {
                 let loop_indent = "    ".repeat(out_rank + kd);
                 writeln!(loops_open, "{}for(int k{} = 0; k{} < {}; ++k{}) {{", 
-                    loop_indent, kd, kd, ker_node.shape.dims[kd], kd).unwrap();
+                    loop_indent, kd, kd, ker_dims[kd], kd).unwrap();
             }
 
             let inner_indent = "    ".repeat(out_rank + ker_rank);
-            
-            // Вычисление индекса входа: i[d] + k[d]
-            let in_strides = in_node.get_effective_strides();
+            let in_strides = in_node.get_effective_strides_c_expr();
             let mut in_parts = Vec::new();
             for d in 0..in_rank {
                 if d < ker_rank {
-                    in_parts.push(format!("(i{} + k{}) * {}", d, d, in_strides[d]));
+                    in_parts.push(format!("(i{} + k{}) * ({})", d, d, in_strides[d]));
                 } else {
-                    in_parts.push(format!("i{} * {}", d, in_strides[d]));
+                    in_parts.push(format!("i{} * ({})", d, in_strides[d]));
                 }
             }
             let in_idx = if in_parts.is_empty() { "0".into() } else { in_parts.join(" + ") };
 
-            // Вычисление индекса ядра
-            let ker_strides = ker_node.get_effective_strides();
+            let ker_strides = ker_node.get_effective_strides_c_expr();
             let ker_idx = (0..ker_rank)
-                .map(|d| format!("k{} * {}", d, ker_strides[d]))
+                .map(|d| format!("k{} * ({})", d, ker_strides[d]))
                 .collect::<Vec<_>>().join(" + ");
             let ker_idx = if ker_idx.is_empty() { "0".into() } else { ker_idx };
 
-            let body = format!("acc += buffer_{}[{}] * buffer_{}[{}];", input, in_idx, kernel, ker_idx);
+            let body = format!("acc += buffer_{}_{}[{}] * buffer_{}_{}[{}];", prog_id, input, in_idx, prog_id, kernel, ker_idx);
             writeln!(loops_open, "{}{}", inner_indent, body).unwrap();
             
-            // Сначала закрываем циклы ЯДРА в loops_open
             for kd in (0..ker_rank).rev() {
                 let loop_indent = "    ".repeat(out_rank + kd);
                 writeln!(loops_open, "{}}}", loop_indent).unwrap();
             }
 
-            // Записываем результат (внутри внешних циклов)
-            writeln!(loops_open, "{}buffer_{}[{}] = acc;", outer_indent, node.id, target_idx).unwrap();
+            writeln!(loops_open, "{}buffer_{}_{}[{}] = acc;", outer_indent, prog_id, node.node_id, target_idx).unwrap();
 
             return GroupRenderInfo {
+                prog_id: prog_id.to_string(),
                 shape: format!("Conv {} by {}", input, kernel),
                 loops_open,
-                loops_close, // Здесь только закрытие внешних циклов
+                loops_close,
                 indent: "".into(),
                 operations: vec![],
             };
@@ -346,68 +365,68 @@ impl<'a> CodegenC<'a> {
         let mut out_d = 0;
         for d in 0..rank {
             if d == *skip_axis { continue; }
-            parts.push(format!("i{} * {}", d, node.strides[out_d]));
+            parts.push(format!("i{} * ({})", d, node.strides[out_d]));
             out_d += 1;
         }
         if parts.is_empty() { "0".into() } else { parts.join(" + ") }
     }
 
-    fn generate_body_expr(&self, node: &NodeInfo) -> String {
+    fn generate_body_expr(&self, prog_id: &str, node: &NodeInfo) -> String {
         let rank = node.dims.len();
         let mut target_idx = (0..rank)
-            .map(|d| format!("i{} * {}", d, node.strides[d]))
+            .map(|d| format!("i{} * ({})", d, node.strides[d]))
             .collect::<Vec<_>>().join(" + ");
         if target_idx.is_empty() { target_idx = "0".into(); }
 
         match &node.op {
             Op::Input { .. } | Op::Constant { .. } | Op::ReduceSum { .. } | Op::MatMul { .. } | Op::Conv { .. } => {
-                "".into() // Не должно вызываться в текущей логике или обрабатывается отдельно
+                "".into() 
             }
             Op::Add { left, right } | Op::Mul { left, right } => {
-                let op = if let Op::Add {..} = node.op { "+" } else { "*" };
-                let left_node = self.get_node_by_id(left);
-                let right_node = self.get_node_by_id(right);
+                let op_char = if let Op::Add {..} = node.op { "+" } else { "*" };
+                let left_node = self.get_node_by_id(prog_id, left);
+                let right_node = self.get_node_by_id(prog_id, right);
+                let l_idx = self.generate_index_expr(prog_id, left_node, rank, &node.dims);
+                let r_idx = self.generate_index_expr(prog_id, right_node, rank, &node.dims);
                 
-                let l_idx = self.generate_index_expr(left_node, rank, &node.dims);
-                let r_idx = self.generate_index_expr(right_node, rank, &node.dims);
-                
-                format!("buffer_{}[{}] = buffer_{}[{}] {} buffer_{}[{}];", 
-                    node.id, target_idx, left, l_idx, op, right, r_idx)
+                format!("buffer_{}_{}[{}] = buffer_{}_{}[{}] {} buffer_{}_{}[{}];", 
+                    prog_id, node.node_id, target_idx, prog_id, left, l_idx, op_char, prog_id, right, r_idx)
             }
             Op::Sin { input } => {
-                let in_node = self.get_node_by_id(input);
-                let in_idx = self.generate_index_expr(in_node, rank, &node.dims);
-                format!("buffer_{}[{}] = sinf(buffer_{}[{}]);", node.id, target_idx, input, in_idx)
+                let in_node = self.get_node_by_id(prog_id, input);
+                let in_idx = self.generate_index_expr(prog_id, in_node, rank, &node.dims);
+                format!("buffer_{}_{}[{}] = sinf(buffer_{}_{}[{}]);", prog_id, node.node_id, target_idx, prog_id, input, in_idx)
             }
             Op::Transpose { input, permutation } => {
-                let in_node = self.get_node_by_id(input);
-                let in_strides = in_node.get_effective_strides();
+                let in_node = self.get_node_by_id(prog_id, input);
+                let in_strides = in_node.get_effective_strides_c_expr();
                 let mut in_parts = Vec::new();
                 for (n, &p_n) in permutation.iter().enumerate() {
-                    in_parts.push(format!("i{} * {}", n, in_strides[p_n]));
+                    in_parts.push(format!("i{} * ({})", n, in_strides[p_n]));
                 }
                 let in_idx = if in_parts.is_empty() { "0".into() } else { in_parts.join(" + ") };
-                format!("buffer_{}[{}] = buffer_{}[{}];", node.id, target_idx, input, in_idx)
+                format!("buffer_{}_{}[{}] = buffer_{}_{}[{}];", prog_id, node.node_id, target_idx, prog_id, input, in_idx)
             }
         }
     }
 
-    fn generate_index_expr(&self, node: &crate::model::Node, target_rank: usize, target_dims: &[usize]) -> String {
+    fn generate_index_expr(&self, _prog_id: &str, node: &crate::model::Node, target_rank: usize, target_dims: &[String]) -> String {
         let rank = node.shape.rank();
-        let strides = node.get_effective_strides();
+        let strides = node.get_effective_strides_c_expr();
         let mut parts = Vec::new();
 
         for d in 0..target_rank {
             let in_dim_idx = (d as i32) - (target_rank as i32 - rank as i32);
             if in_dim_idx >= 0 {
                 let in_d = in_dim_idx as usize;
-                let stride = if node.shape.dims[in_d] == target_dims[d] {
-                    strides[in_d]
+                let node_dim_str = node.shape.dims[in_d].to_string();
+                let stride = if node_dim_str == target_dims[d] {
+                    strides[in_d].clone()
                 } else {
-                    0
+                    "0".into()
                 };
-                if stride != 0 {
-                    parts.push(format!("i{} * {}", d, stride));
+                if stride != "0" {
+                    parts.push(format!("i{} * ({})", d, stride));
                 }
             }
         }
@@ -415,29 +434,33 @@ impl<'a> CodegenC<'a> {
         if parts.is_empty() { "0".into() } else { parts.join(" + ") }
     }
 
-    fn get_node_info(&self, id: &str) -> NodeInfo {
-        let node = self.get_node_by_id(id);
+    fn get_node_info(&self, prog_id: &str, node_id: &str) -> NodeInfo {
+        let node = self.get_node_by_id(prog_id, node_id);
         NodeInfo {
-            id: node.id.clone(),
-            dims: node.shape.dims.clone(),
-            strides: node.get_effective_strides(),
+            node_id: node_id.to_string(),
+            dims: node.shape.dims.iter().map(|d| d.to_string()).collect(),
+            strides: node.get_effective_strides_c_expr(),
             op: node.op.clone(),
         }
     }
 
-    fn get_node_by_id(&self, id: &str) -> &crate::model::Node {
-        for idx in self.compiler.graph.node_indices() {
-            let node = &self.compiler.graph[idx];
-            if node.id == id { return node; }
+    fn get_node_by_id(&self, prog_id: &str, node_id: &str) -> &crate::model::Node {
+        let prog = &self.programs[prog_id];
+        for idx in prog.compiler.graph.node_indices() {
+            let node = &prog.compiler.graph[idx];
+            if node.id == node_id { return node; }
         }
-        panic!("Node {} not found", id);
+        panic!("Node {} not found in program {}", node_id, prog_id);
     }
 
-    fn map_dtype(&self, dtype: &DataType) -> &'static str {
+    fn map_dtype(&self, dtype: &crate::model::DataType) -> &'static str {
         match dtype {
-            DataType::F32 => "float",
-            DataType::I32 => "int32_t",
-            DataType::U32 => "uint32_t",
+            crate::model::DataType::F32 => "float",
+            crate::model::DataType::I32 => "int32_t",
+            crate::model::DataType::U32 => "uint32_t",
         }
     }
 }
+
+
+    

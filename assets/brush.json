@@ -1,0 +1,64 @@
+{
+  "nodes": [
+    {
+      "id": "mouse_pos",
+      "op": { "Input": { "name": "mouse_pos" } },
+      "shape": { "dims": [2] },
+      "dtype": "F32"
+    },
+    {
+      "id": "time",
+      "op": { "Input": { "name": "time" } },
+      "shape": { "dims": [1] },
+      "dtype": "F32"
+    },
+    {
+      "id": "uv",
+      "op": { "Input": { "name": "uv" } },
+      "shape": { "dims": ["_", "_", 2] },
+      "dtype": "F32"
+    },
+    {
+      "id": "freq",
+      "op": { "Constant": { "values": [10.0] } },
+      "shape": { "dims": [] },
+      "dtype": "F32"
+    },
+    {
+      "id": "mouse_x",
+      "op": { "ReduceSum": { "input": "mouse_pos", "axis": 0 } },
+      "shape": { "dims": [] },
+      "dtype": "F32"
+    },
+    {
+      "id": "u_coord",
+      "op": { "ReduceSum": { "input": "uv", "axis": 2 } },
+      "shape": { "dims": ["_", "_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "phase",
+      "op": { "Add": { "left": "u_coord", "right": "time" } },
+      "shape": { "dims": ["_", "_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "pattern",
+      "op": { "Sin": { "input": "phase" } },
+      "shape": { "dims": ["_", "_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "intensity",
+      "op": { "Constant": { "values": [0.05] } },
+      "shape": { "dims": [] },
+      "dtype": "F32"
+    },
+    {
+      "id": "output",
+      "op": { "Mul": { "left": "pattern", "right": "intensity" } },
+      "shape": { "dims": ["_", "_", 4] },
+      "dtype": "F32"
+    }
+  ]
+}
