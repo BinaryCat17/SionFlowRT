@@ -110,10 +110,19 @@ impl<'a> CodegenC<'a> {
                 let info = self.get_node_info(prog_id, &node.id);
                 if let Op::Constant { .. } | Op::Input { .. } = &node.op { continue; }
 
-                let shape_str = format!("{:?}", info.dims);
                 let is_special = matches!(node.op, Op::ReduceSum { .. } | Op::MatMul { .. } | Op::Conv { .. });
+                
+                // Aggressive Fusion Logic: 
+                // We can fuse if the new node's rank is <= current group's rank
+                // and its dimensions match the prefix of the group's dimensions.
                 let can_fuse = match &current_group {
-                    Some(g) => g.shape == shape_str && !is_special && g.kernel.is_none(),
+                    Some(g) => {
+                        let g_dims: Vec<String> = g.outer_loops.iter().map(|l| l.limit.clone()).collect();
+                        let is_compatible = info.dims.len() <= g_dims.len() && 
+                            (0..info.dims.len()).all(|d| info.dims[d] == g_dims[d]);
+                        
+                        is_compatible && !is_special && g.kernel.is_none()
+                    },
                     None => false,
                 };
 

@@ -11,13 +11,25 @@
     },
     {
       "id": "mouse_raw",
-      "op": { "Input": { "name": "mouse" } },
+      "op": { "Input": { "name": "mouse_raw" } },
+      "shape": { "dims": [2] },
+      "dtype": "F32"
+    },
+    {
+      "id": "mouse_prev_raw",
+      "op": { "Input": { "name": "mouse_prev_raw" } },
       "shape": { "dims": [2] },
       "dtype": "F32"
     },
     {
       "id": "mouse",
       "op": { "Reshape": { "input": "mouse_raw", "new_shape": [1, 1, 2] } },
+      "shape": { "dims": [1, 1, 2] },
+      "dtype": "F32"
+    },
+    {
+      "id": "mouse_prev",
+      "op": { "Reshape": { "input": "mouse_prev_raw", "new_shape": [1, 1, 2] } },
       "shape": { "dims": [1, 1, 2] },
       "dtype": "F32"
     },
@@ -34,33 +46,57 @@
       "dtype": "F32"
     },
     {
-      "id": "dist_3d",
-      "op": { "Call": { "subgraph": "math/distance", "inputs": { "a": "uv", "b": "mouse" } } },
-      "shape": { "dims": ["HEIGHT", "WIDTH", 1] },
+      "id": "pa",
+      "op": { "Sub": { "left": "uv", "right": "mouse_prev" } },
+      "shape": { "dims": ["HEIGHT", "WIDTH", 2] },
       "dtype": "F32"
     },
     {
-      "id": "radius",
-      "op": { "Constant": { "values": [0.03] } },
+      "id": "ba",
+      "op": { "Sub": { "left": "mouse", "right": "mouse_prev" } },
+      "shape": { "dims": [1, 1, 2] },
+      "dtype": "F32"
+    },
+    {
+      "id": "pa_ba_mul",
+      "op": { "Mul": { "left": "pa", "right": "ba" } },
+      "shape": { "dims": ["HEIGHT", "WIDTH", 2] },
+      "dtype": "F32"
+    },
+    {
+      "id": "dot_pa_ba",
+      "op": { "ReduceSum": { "input": "pa_ba_mul", "axis": 2 } },
+      "shape": { "dims": ["HEIGHT", "WIDTH"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "ba_ba_mul",
+      "op": { "Mul": { "left": "ba", "right": "ba" } },
+      "shape": { "dims": [1, 1, 2] },
+      "dtype": "F32"
+    },
+    {
+      "id": "dot_ba_ba_raw",
+      "op": { "ReduceSum": { "input": "ba_ba_mul", "axis": 2 } },
+      "shape": { "dims": [1, 1] },
+      "dtype": "F32"
+    },
+    {
+      "id": "eps",
+      "op": { "Constant": { "values": [1e-6] } },
       "shape": { "dims": [1] },
       "dtype": "F32"
     },
     {
-      "id": "inv_dist",
-      "op": { "Sub": { "left": "radius", "right": "dist_3d" } },
-      "shape": { "dims": ["HEIGHT", "WIDTH", 1] },
+      "id": "dot_ba_ba",
+      "op": { "Add": { "left": "dot_ba_ba_raw", "right": "eps" } },
+      "shape": { "dims": [1, 1] },
       "dtype": "F32"
     },
     {
-      "id": "scale_val",
-      "op": { "Constant": { "values": [100.0] } },
-      "shape": { "dims": [1] },
-      "dtype": "F32"
-    },
-    {
-      "id": "scaled_dist",
-      "op": { "Mul": { "left": "inv_dist", "right": "scale_val" } },
-      "shape": { "dims": ["HEIGHT", "WIDTH", 1] },
+      "id": "h_raw",
+      "op": { "Div": { "left": "dot_pa_ba", "right": "dot_ba_ba" } },
+      "shape": { "dims": ["HEIGHT", "WIDTH"] },
       "dtype": "F32"
     },
     {
@@ -73,6 +109,60 @@
       "id": "one",
       "op": { "Constant": { "values": [1.0] } },
       "shape": { "dims": [1] },
+      "dtype": "F32"
+    },
+    {
+      "id": "h",
+      "op": { "Call": { "subgraph": "math/clamp", "inputs": { "input": "h_raw", "min": "zero", "max": "one" } } },
+      "shape": { "dims": ["HEIGHT", "WIDTH"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "h_3d",
+      "op": { "Reshape": { "input": "h", "new_shape": ["HEIGHT", "WIDTH", 1] } },
+      "shape": { "dims": ["HEIGHT", "WIDTH", 1] },
+      "dtype": "F32"
+    },
+    {
+      "id": "ba_h",
+      "op": { "Mul": { "left": "ba", "right": "h_3d" } },
+      "shape": { "dims": ["HEIGHT", "WIDTH", 2] },
+      "dtype": "F32"
+    },
+    {
+      "id": "vec_to_dist",
+      "op": { "Sub": { "left": "pa", "right": "ba_h" } },
+      "shape": { "dims": ["HEIGHT", "WIDTH", 2] },
+      "dtype": "F32"
+    },
+    {
+      "id": "dist_3d",
+      "op": { "Call": { "subgraph": "math/distance", "inputs": { "a": "vec_to_dist", "b": "zero" } } },
+      "shape": { "dims": ["HEIGHT", "WIDTH", 1] },
+      "dtype": "F32"
+    },
+    {
+      "id": "radius",
+      "op": { "Constant": { "values": [0.005] } },
+      "shape": { "dims": [1] },
+      "dtype": "F32"
+    },
+    {
+      "id": "inv_dist",
+      "op": { "Sub": { "left": "radius", "right": "dist_3d" } },
+      "shape": { "dims": ["HEIGHT", "WIDTH", 1] },
+      "dtype": "F32"
+    },
+    {
+      "id": "scale_val",
+      "op": { "Constant": { "values": [1000.0] } },
+      "shape": { "dims": [1] },
+      "dtype": "F32"
+    },
+    {
+      "id": "scaled_dist",
+      "op": { "Mul": { "left": "inv_dist", "right": "scale_val" } },
+      "shape": { "dims": ["HEIGHT", "WIDTH", 1] },
       "dtype": "F32"
     },
     {
@@ -94,26 +184,8 @@
       "dtype": "F32"
     },
     {
-      "id": "is_init",
-      "op": { "Sub": { "left": "init_threshold", "right": "time" } },
-      "shape": { "dims": [1] },
-      "dtype": "F32"
-    },
-    {
-      "id": "init_boost",
-      "op": { "Constant": { "values": [1000.0] } },
-      "shape": { "dims": [1] },
-      "dtype": "F32"
-    },
-    {
-      "id": "is_init_scaled",
-      "op": { "Mul": { "left": "is_init", "right": "init_boost" } },
-      "shape": { "dims": [1] },
-      "dtype": "F32"
-    },
-    {
       "id": "init_mask",
-      "op": { "Call": { "subgraph": "math/clamp", "inputs": { "input": "is_init_scaled", "min": "zero", "max": "one" } } },
+      "op": { "Constant": { "values": [0.0] } },
       "shape": { "dims": [1] },
       "dtype": "F32"
     },

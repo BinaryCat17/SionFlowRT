@@ -20,6 +20,7 @@ use crate::model::Dimension;
 #[serde(tag = "type")]
 pub enum MappingSource {
     MousePosition,
+    MousePositionPrev,
     MouseButton { button: String },
     ScreenUV,
     Time,

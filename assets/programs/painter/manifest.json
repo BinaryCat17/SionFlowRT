@@ -24,6 +24,11 @@
       "shape": [2] 
     },
     { 
+      "program": "brush", "tensor": "mouse_prev_raw", 
+      "source": { "type": "MousePositionPrev" }, 
+      "shape": [2] 
+    },
+    { 
       "program": "brush", "tensor": "is_drawing", 
       "source": { "type": "MouseButton", "button": "left" }, 
       "shape": [1] 

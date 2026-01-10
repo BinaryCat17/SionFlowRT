@@ -5,6 +5,13 @@
 #include <stdbool.h>
 #include <string.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#define PARALLEL _Pragma("omp parallel for")
+#else
+#define PARALLEL
+#endif
+
 /* --- Parameters --- */
 {% for name, value in parameters -%}
 #define {{ name }} {{ value }}
@@ -42,6 +49,11 @@ int main(int argc, char* argv[]) {
     bool quit = false;
     SDL_Event e;
     uint32_t start_time = SDL_GetTicks();
+    float current_mouse_x = 0.0f;
+    float current_mouse_y = 0.0f;
+    float last_frame_mouse_x = 0.0f;
+    float last_frame_mouse_y = 0.0f;
+    bool first_mouse = true;
 
     // Initial state copy for stateful nodes
     {% for node in nodes -%}{% if node.is_stateful -%}
@@ -52,13 +64,27 @@ int main(int argc, char* argv[]) {
         while (SDL_PollEvent(&e) != 0) {
             if (e.type == SDL_QUIT) quit = true;
             
-            {% for m in mappings -%}
-            {% if m.source.type == "MousePosition" -%}
             if (e.type == SDL_MOUSEMOTION) {
-                buffer_{{ m.program }}_{{ m.tensor }}[0] = (float)e.motion.x / (float)WIDTH;
-                buffer_{{ m.program }}_{{ m.tensor }}[1] = (float)e.motion.y / (float)HEIGHT;
+                current_mouse_x = (float)e.motion.x / (float)WIDTH;
+                current_mouse_y = (float)e.motion.y / (float)HEIGHT;
+                if (first_mouse) {
+                    last_frame_mouse_x = current_mouse_x;
+                    last_frame_mouse_y = current_mouse_y;
+                    first_mouse = false;
+                }
             }
-            {% elif m.source.type == "MouseButton" -%}
+            
+            if (e.type == SDL_MOUSEBUTTONDOWN) {
+                if (e.button.button == SDL_BUTTON_LEFT) {
+                    current_mouse_x = (float)e.button.x / (float)WIDTH;
+                    current_mouse_y = (float)e.button.y / (float)HEIGHT;
+                    last_frame_mouse_x = current_mouse_x;
+                    last_frame_mouse_y = current_mouse_y;
+                }
+            }
+
+            {% for m in mappings -%}
+            {% if m.source.type == "MouseButton" -%}
             if (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) {
                 float val = (e.type == SDL_MOUSEBUTTONDOWN) ? 1.0f : 0.0f;
                 {% if m.source.button == "left" -%}
@@ -71,6 +97,15 @@ int main(int argc, char* argv[]) {
             {%- endfor %}
         }
 
+        {% for m in mappings -%}
+        {% if m.source.type == "MousePosition" -%}
+        buffer_{{ m.program }}_{{ m.tensor }}[0] = current_mouse_x;
+        buffer_{{ m.program }}_{{ m.tensor }}[1] = current_mouse_y;
+        {% elif m.source.type == "MousePositionPrev" -%}
+        buffer_{{ m.program }}_{{ m.tensor }}[0] = last_frame_mouse_x;
+        buffer_{{ m.program }}_{{ m.tensor }}[1] = last_frame_mouse_y;
+        {%- endif %}{%- endfor %}
+
         // Global inputs
         float current_time = (SDL_GetTicks() - start_time) / 1000.0f;
         
@@ -78,6 +113,7 @@ int main(int argc, char* argv[]) {
         {% if m.source.type == "Time" -%}
         buffer_{{ m.program }}_{{ m.tensor }}[0] = current_time;
         {% elif m.source.type == "ScreenUV" -%}
+        PARALLEL
         for(int y = 0; y < HEIGHT; ++y) {
             for(int x = 0; x < WIDTH; ++x) {
                 int idx = (y * WIDTH + x) * 2;
@@ -101,6 +137,9 @@ int main(int argc, char* argv[]) {
 
         execute();
 
+        last_frame_mouse_x = current_mouse_x;
+        last_frame_mouse_y = current_mouse_y;
+
         // Update stateful swaps
         {% for node in nodes -%}{% if node.is_stateful -%}
         memcpy(buffer_{{ node.prog_id }}_{{ node.node_id }}_swap, buffer_{{ node.prog_id }}_{{ node.node_id }}, sizeof(float) * ({{ node.size_expr }}));
@@ -108,21 +147,23 @@ int main(int argc, char* argv[]) {
 
         // Render Sinks
         {% for m in mappings -%}
-        {% if m.source.type == "Display" -%}
-        void* pixels; int pitch;
-        SDL_LockTexture(texture, NULL, &pixels, &pitch);
-        for (int y = 0; y < HEIGHT; ++y) {
-            uint32_t* row = (uint32_t*)((uint8_t*)pixels + y * pitch);
-            for (int x = 0; x < WIDTH; ++x) {
-                int i = y * WIDTH + x;
-                float r = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 0];
-                float g = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 1];
-                float b = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 2];
-                row[x] = (255u << 24) | (((uint8_t)(fmaxf(0.0f, fminf(r, 1.0f))*255)) << 16) | (((uint8_t)(fmaxf(0.0f, fminf(g, 1.0f))*255)) << 8) | ((uint8_t)(fmaxf(0.0f, fminf(b, 1.0f))*255));
-            }
-        }
-        SDL_UnlockTexture(texture);
-        {% endif -%}{%- endfor %}
+                {% if m.source.type == "Display" -%}
+                void* pixels; int pitch;
+                SDL_LockTexture(texture, NULL, &pixels, &pitch);
+                PARALLEL
+                for (int y = 0; y < HEIGHT; ++y) {
+                    uint32_t* row = (uint32_t*)((uint8_t*)pixels + y * pitch);
+                    for (int x = 0; x < WIDTH; ++x) {
+                        int i = y * WIDTH + x;
+                        float r = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 0];
+                        float g = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 1];
+                        float b = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 2];
+                        row[x] = (255u << 24) | (((uint8_t)(fmaxf(0.0f, fminf(r, 1.0f))*255)) << 16) | (((uint8_t)(fmaxf(0.0f, fminf(g, 1.0f))*255)) << 8) | ((uint8_t)(fmaxf(0.0f, fminf(b, 1.0f))*255));
+                    }
+                }
+                SDL_UnlockTexture(texture);
+                {% endif -%}
+        {%- endfor %}
 
         SDL_RenderClear(renderer);
         SDL_RenderCopy(renderer, texture, NULL, NULL);
