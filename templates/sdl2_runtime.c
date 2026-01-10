@@ -55,8 +55,17 @@ int main(int argc, char* argv[]) {
             {% for m in mappings -%}
             {% if m.source.type == "MousePosition" -%}
             if (e.type == SDL_MOUSEMOTION) {
-                buffer_{{ m.program }}_{{ m.tensor }}[0] = (float)e.motion.x;
-                buffer_{{ m.program }}_{{ m.tensor }}[1] = (float)e.motion.y;
+                buffer_{{ m.program }}_{{ m.tensor }}[0] = (float)e.motion.x / (float)WIDTH;
+                buffer_{{ m.program }}_{{ m.tensor }}[1] = (float)e.motion.y / (float)HEIGHT;
+            }
+            {% elif m.source.type == "MouseButton" -%}
+            if (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) {
+                float val = (e.type == SDL_MOUSEBUTTONDOWN) ? 1.0f : 0.0f;
+                {% if m.source.button == "left" -%}
+                if (e.button.button == SDL_BUTTON_LEFT) buffer_{{ m.program }}_{{ m.tensor }}[0] = val;
+                {% elif m.source.button == "right" -%}
+                if (e.button.button == SDL_BUTTON_RIGHT) buffer_{{ m.program }}_{{ m.tensor }}[0] = val;
+                {%- endif %}
             }
             {% endif -%}
             {%- endfor %}
@@ -101,13 +110,15 @@ int main(int argc, char* argv[]) {
         {% if m.source.type == "Display" -%}
         void* pixels; int pitch;
         SDL_LockTexture(texture, NULL, &pixels, &pitch);
-        uint32_t* dest = (uint32_t*)pixels;
-        for (int i = 0; i < WIDTH * HEIGHT; ++i) {
-            float r = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 0];
-            float g = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 1];
-            float b = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 2];
-            // Force Alpha to 1.0 (255)
-            dest[i] = (255u << 24) | (((uint8_t)(fmaxf(0.0f, fminf(r, 1.0f))*255)) << 16) | (((uint8_t)(fmaxf(0.0f, fminf(g, 1.0f))*255)) << 8) | ((uint8_t)(fmaxf(0.0f, fminf(b, 1.0f))*255));
+        for (int y = 0; y < HEIGHT; ++y) {
+            uint32_t* row = (uint32_t*)((uint8_t*)pixels + y * pitch);
+            for (int x = 0; x < WIDTH; ++x) {
+                int i = y * WIDTH + x;
+                float r = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 0];
+                float g = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 1];
+                float b = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 2];
+                row[x] = (255u << 24) | (((uint8_t)(fmaxf(0.0f, fminf(r, 1.0f))*255)) << 16) | (((uint8_t)(fmaxf(0.0f, fminf(g, 1.0f))*255)) << 8) | ((uint8_t)(fmaxf(0.0f, fminf(b, 1.0f))*255));
+            }
         }
         SDL_UnlockTexture(texture);
         {% endif -%}{%- endfor %}
@@ -118,16 +129,21 @@ int main(int argc, char* argv[]) {
 
         static int frame_counter = 0;
         if (frame_counter == 60) {
-            SDL_Surface* save_surface = SDL_CreateRGBSurface(0, WIDTH, HEIGHT, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
-            if (save_surface) {
-                SDL_RenderReadPixels(renderer, NULL, save_surface->format->format, save_surface->pixels, save_surface->pitch);
-                if (SDL_SaveBMP(save_surface, "logs/screenshot.bmp") == 0) {
-                    printf("Screenshot saved to logs/screenshot.bmp at frame 60\n");
+            int sw = WIDTH / 2;
+            int sh = HEIGHT / 2;
+            SDL_Surface* full_surface = SDL_CreateRGBSurface(0, WIDTH, HEIGHT, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
+            SDL_Surface* small_surface = SDL_CreateRGBSurface(0, sw, sh, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000);
+            if (full_surface && small_surface) {
+                SDL_RenderReadPixels(renderer, NULL, full_surface->format->format, full_surface->pixels, full_surface->pitch);
+                SDL_BlitScaled(full_surface, NULL, small_surface, NULL);
+                if (SDL_SaveBMP(small_surface, "logs/screenshot.bmp") == 0) {
+                    printf("Half-size screenshot saved to logs/screenshot.bmp at frame 60\n");
                 } else {
                     printf("Failed to save screenshot: %s\n", SDL_GetError());
                 }
-                SDL_FreeSurface(save_surface);
             }
+            if (full_surface) SDL_FreeSurface(full_surface);
+            if (small_surface) SDL_FreeSurface(small_surface);
         }
         if (frame_counter <= 60) frame_counter++;
     }

@@ -1,0 +1,32 @@
+{
+  "nodes": [
+    {
+      "id": "input",
+      "op": { "Input": { "name": "input" } },
+      "shape": { "dims": ["_", "_", "_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "kernel",
+      "op": { "Constant": { "values": [
+        0.0625, 0.125, 0.0625,
+        0.125,  0.25,  0.125,
+        0.0625, 0.125, 0.0625
+      ] } },
+      "shape": { "dims": [3, 3] },
+      "dtype": "F32"
+    },
+    {
+      "id": "res",
+      "op": { "Conv": { "input": "input", "kernel": "kernel" } },
+      "shape": { "dims": ["_", "_", "_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "out",
+      "op": { "Output": { "name": "default", "input": "res" } },
+      "shape": { "dims": ["_", "_", "_"] },
+      "dtype": "F32"
+    }
+  ]
+}

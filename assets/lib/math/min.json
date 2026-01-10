@@ -1,0 +1,28 @@
+{
+  "nodes": [
+    {
+      "id": "a",
+      "op": { "Input": { "name": "a" } },
+      "shape": { "dims": ["_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "b",
+      "op": { "Input": { "name": "b" } },
+      "shape": { "dims": ["_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "res",
+      "op": { "Min": { "left": "a", "right": "b" } },
+      "shape": { "dims": ["_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "out",
+      "op": { "Output": { "name": "default", "input": "res" } },
+      "shape": { "dims": ["_"] },
+      "dtype": "F32"
+    }
+  ]
+}

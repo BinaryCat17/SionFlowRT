@@ -1,0 +1,46 @@
+{
+  "nodes": [
+    {
+      "id": "input",
+      "op": { "Input": { "name": "input" } },
+      "shape": { "dims": ["_", "_", "_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "contrast",
+      "op": { "Input": { "name": "contrast" } },
+      "shape": { "dims": [1] },
+      "dtype": "F32"
+    },
+    {
+      "id": "half",
+      "op": { "Constant": { "values": [0.5] } },
+      "shape": { "dims": [1] },
+      "dtype": "F32"
+    },
+    {
+      "id": "sub_half",
+      "op": { "Sub": { "left": "input", "right": "half" } },
+      "shape": { "dims": ["_", "_", "_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "scaled",
+      "op": { "Mul": { "left": "sub_half", "right": "contrast" } },
+      "shape": { "dims": ["_", "_", "_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "res",
+      "op": { "Add": { "left": "scaled", "right": "half" } },
+      "shape": { "dims": ["_", "_", "_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "out",
+      "op": { "Output": { "name": "default", "input": "res" } },
+      "shape": { "dims": ["_", "_", "_"] },
+      "dtype": "F32"
+    }
+  ]
+}

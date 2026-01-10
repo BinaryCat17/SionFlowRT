@@ -1,0 +1,34 @@
+{
+  "nodes": [
+    {
+      "id": "input",
+      "op": { "Input": { "name": "input" } },
+      "shape": { "dims": ["_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "min",
+      "op": { "Input": { "name": "min" } },
+      "shape": { "dims": ["_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "max",
+      "op": { "Input": { "name": "max" } },
+      "shape": { "dims": ["_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "res",
+      "op": { "Clamp": { "input": "input", "min": "min", "max": "max" } },
+      "shape": { "dims": ["_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "out",
+      "op": { "Output": { "name": "default", "input": "res" } },
+      "shape": { "dims": ["_"] },
+      "dtype": "F32"
+    }
+  ]
+}

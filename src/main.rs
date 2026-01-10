@@ -19,7 +19,7 @@ pub struct CompiledProgram {
 }
 
 fn main() -> anyhow::Result<()> {
-    let manifest_path = "assets/manifest.json";
+    let manifest_path = "assets/programs/painter/manifest.json";
     let gen_dir = "generated";
     let out_dir = "out";
 

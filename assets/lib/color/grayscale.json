@@ -19,8 +19,14 @@
       "dtype": "F32"
     },
     {
-      "id": "output",
+      "id": "res",
       "op": { "ReduceSum": { "input": "weighted", "axis": 2 } },
+      "shape": { "dims": ["_", "_"] },
+      "dtype": "F32"
+    },
+    {
+      "id": "out",
+      "op": { "Output": { "name": "default", "input": "res" } },
       "shape": { "dims": ["_", "_"] },
       "dtype": "F32"
     }

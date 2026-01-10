@@ -33,12 +33,43 @@
 void execute() {
 {%- for group in groups %}
 
-    /* --- Fusion Group (Prog: {{ group.prog_id }}, Shape: {{ group.shape }}) --- */
-{{ group.loops_open -}}
-{%- for op in group.operations %}
-    {{ group.indent }}// {{ op.id }}
-    {{ group.indent }}{{ op.body }}
+    /* --- Group (Prog: {{ group.prog_id }}, Shape: {{ group.shape }}) --- */
+{%- if group.is_parallel %}
+    PARALLEL
+{%- endif %}
+{%- for lp in group.outer_loops %}
+    {% for i in range(end=loop.index0) %}    {% endfor %}for(int {{ lp.var }} = 0; {{ lp.var }} < {{ lp.limit }}; ++{{ lp.var }}) {
 {%- endfor %}
-{{ group.loops_close -}}
+
+    {%- set outer_rank = group.outer_loops | length %}
+    {%- set base_indent = "" %}
+    {%- for i in range(end=outer_rank) %}{% set_global base_indent = base_indent ~ "    " %}{% endfor %}
+
+    {%- if group.kernel %}
+    {{ base_indent }}{{ group.kernel.init }}
+    {%- for lp in group.kernel.inner_loops %}
+    {{ base_indent }}{% for i in range(end=loop.index0) %}    {% endfor %}for(int {{ lp.var }} = 0; {{ lp.var }} < {{ lp.limit }}; ++{{ lp.var }}) {
+    {%- endfor %}
+    
+    {%- set inner_rank = group.kernel.inner_loops | length %}
+    {%- set body_indent = base_indent %}
+    {%- for i in range(end=inner_rank) %}{% set_global body_indent = body_indent ~ "    " %}{% endfor %}
+    {{ body_indent }}{{ group.kernel.body }}
+
+    {%- for lp in group.kernel.inner_loops %}
+    {{ base_indent }}{% for i in range(end=(inner_rank - loop.index)) %}    {% endfor %}}
+    {%- endfor %}
+    {{ base_indent }}{{ group.kernel.finalize }}
+
+    {%- else %}
+    {%- for op in group.fusion_ops %}
+    {{ base_indent }}// {{ op.id }}
+    {{ base_indent }}{{ op.body }}
+    {%- endfor %}
+    {%- endif %}
+
+{%- for lp in group.outer_loops %}
+    {% for i in range(end=(outer_rank - loop.index)) %}    {% endfor %}}
+{%- endfor %}
 {%- endfor %}
 }
