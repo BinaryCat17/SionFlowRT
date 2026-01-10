@@ -73,6 +73,7 @@ int main(int argc, char* argv[]) {
 
         // Global inputs
         float current_time = (SDL_GetTicks() - start_time) / 1000.0f;
+        
         {% for m in mappings -%}
         {% if m.source.type == "Time" -%}
         buffer_{{ m.program }}_{{ m.tensor }}[0] = current_time;

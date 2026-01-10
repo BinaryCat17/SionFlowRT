@@ -19,7 +19,7 @@
       "shape": ["HEIGHT", "WIDTH", 2] 
     },
     { 
-      "program": "brush", "tensor": "mouse", 
+      "program": "brush", "tensor": "mouse_raw", 
       "source": { "type": "MousePosition" }, 
       "shape": [2] 
     },

@@ -89,7 +89,7 @@
     },
     {
       "id": "init_threshold",
-      "op": { "Constant": { "values": [0.1] } },
+      "op": { "Constant": { "values": [0.0] } },
       "shape": { "dims": [1] },
       "dtype": "F32"
     },
