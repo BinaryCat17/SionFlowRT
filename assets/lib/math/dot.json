@@ -1,18 +1,17 @@
 {
   "inputs": [
-    { "name": "a", "dtype": "F32", "shape": ["_"] },
-    { "name": "b", "dtype": "F32", "shape": ["_"] }
+    { "name": "a", "dtype": "F32", "shape": ["..."] },
+    { "name": "b", "dtype": "F32", "shape": ["..."] }
   ],
   "outputs": [
-    { "name": "output", "dtype": "F32", "shape": ["_"] }
+    { "name": "output", "dtype": "F32", "shape": [1] }
   ],
   "nodes": [
     { "id": "mul", "op": "Mul" },
     { "id": "sum", "op": { "ReduceSum": { "axis": -1 } } }
   ],
   "links": [
-    ["a", "mul.left"],
-    ["b", "mul.right"],
+    ["a", "mul.left"], ["b", "mul.right"],
     ["mul.output", "sum.input"],
     ["sum.output", "output"]
   ]

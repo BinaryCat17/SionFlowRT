@@ -22,6 +22,9 @@
 {% for node in prog.nodes -%}
 float buffer_{{ prog.id }}_{{ node.id }}[{{ node.size }}];
 {% endfor %}
+{% for out in prog.outputs -%}
+#define buffer_{{ prog.id }}_{{ out.alias }} buffer_{{ prog.id }}_{{ out.real_id }}
+{% endfor %}
 {% endfor %}
 
 /* --- Execution Functions --- */

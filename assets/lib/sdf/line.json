@@ -3,12 +3,12 @@
     "math": "assets/lib/math"
   },
   "inputs": [
-    { "name": "uv", "dtype": "F32", "shape": ["_"] },
-    { "name": "a", "dtype": "F32", "shape": ["_"] },
-    { "name": "b", "dtype": "F32", "shape": ["_"] }
+    { "name": "uv", "dtype": "F32", "shape": ["..."] },
+    { "name": "a", "dtype": "F32", "shape": ["..."] },
+    { "name": "b", "dtype": "F32", "shape": ["..."] }
   ],
   "outputs": [
-    { "name": "output", "dtype": "F32", "shape": ["_", "_", 1] }
+    { "name": "output", "dtype": "F32", "shape": ["...", 1] }
   ],
   "nodes": [
     { "id": "pa", "op": "Sub" },
@@ -21,11 +21,11 @@
     { "id": "zero", "op": { "Constant": { "values": [0.0] } } },
     { "id": "one", "op": { "Constant": { "values": [1.0] } } },
     { "id": "h", "subgraph": "math/clamp" },
-    { "id": "h_3d", "op": { "Reshape": { "new_shape": ["_", "_", 1] } } },
+    { "id": "h_3d", "op": { "Reshape": { "new_shape": ["...", 1] } } },
     { "id": "ba_h", "op": "Mul" },
     { "id": "vec_to_dist", "op": "Sub" },
     { "id": "dist_raw", "subgraph": "math/distance" },
-    { "id": "dist_3d", "op": { "Reshape": { "new_shape": ["_", "_", 1] } } }
+    { "id": "dist_3d", "op": { "Reshape": { "new_shape": ["...", 1] } } }
   ],
   "links": [
     ["uv", "pa.left"], ["a", "pa.right"],

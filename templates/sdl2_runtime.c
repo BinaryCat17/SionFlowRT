@@ -24,6 +24,12 @@ extern void execute_all();
 extern float buffer_{{ node.prog_id }}_{{ node.node_id }} [];
 {% endfor %}
 
+{% for prog in programs %}
+{% for out in prog.outputs -%}
+#define buffer_{{ prog.id }}_{{ out.alias }} buffer_{{ prog.id }}_{{ out.real_id }}
+{% endfor %}
+{% endfor %}
+
 int main(int argc, char* argv[]) {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) return 1;
 
