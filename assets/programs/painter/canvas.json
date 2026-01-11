@@ -1,10 +1,10 @@
 {
   "inputs": [
     { "name": "brush_input", "dtype": "float", "shape": ["...", 4] },
-    { "name": "prev_frame", "dtype": "float", "shape": ["...", 4] }
+    { "name": "display", "dtype": "float", "shape": ["...", 4] }
   ],
   "outputs": [
-    { "name": "final_output", "dtype": "float", "shape": ["...", 4] }
+    { "name": "display", "dtype": "float", "shape": ["...", 4] }
   ],
   "nodes": [
     { "id": "one", "op": { "Constant": { "values": [1.0] } } },
@@ -20,9 +20,9 @@
     ["zero.output", "brush_mask_2d.min"],
     ["one.output", "brush_mask_2d.max"],
     ["brush_mask_2d.output", "brush_mask_3d.input"],
-    ["inputs.prev_frame", "combined.a"],
+    ["inputs.display", "combined.a"],
     ["inputs.brush_input", "combined.b"],
     ["brush_mask_3d.output", "combined.t"],
-    ["combined.output", "outputs.final_output"]
+    ["combined.output", "outputs.display"]
   ]
 }

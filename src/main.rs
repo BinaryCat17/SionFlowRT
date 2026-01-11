@@ -4,109 +4,60 @@ mod manifest;
 mod json_graph;
 mod ir_graph;
 mod ir_passes;
+mod orchestration_passes;
 mod linear_ir;
 mod linear_passes;
 mod shape_engine;
-mod linker;
+mod orchestrator;
+mod pipeline;
+mod builder;
 
-use manifest::Manifest;
-use std::collections::HashMap;
-use std::fs;
-use std::process::Command;
-use std::path::Path;
-use json_graph::LogicalGraph;
-use ir_graph::IRGraph;
-use linear_ir::LinearIR;
-use codegen_c::CodegenC;
-use linker::Linker;
-
-fn load_logical_graph(path: &str) -> anyhow::Result<LogicalGraph<serde_json::Value>> {
-    let path_with_ext = if path.ends_with(".json") { path.to_string() } else { format!("{}.json", path) };
-    let content = fs::read_to_string(&path_with_ext)
-        .map_err(|e| anyhow::anyhow!("Failed to read graph file {}: {}", path_with_ext, e))?;
-    
-    LogicalGraph::from_json(
-        &content, 
-        |sub_path| {
-            let resolved_path = if Path::new(sub_path).exists() || sub_path.starts_with("assets/") {
-                sub_path.to_string()
-            } else {
-                format!("assets/lib/{}", sub_path)
-            };
-            load_logical_graph(&resolved_path)
-        },
-        |op| ir_graph::KernelRegistry::get_interface(&serde_json::from_value(op.clone()).unwrap())
-    )
-}
+use pipeline::{Pipeline, CompilerContext};
+use manifest::{LoadManifestStage, ResolveParametersStage};
+use ir_graph::IngestionStage;
+use ir_passes::IRPasses;
+use orchestrator::{OrchestrationStage};
+use orchestration_passes::{OrchestrationPasses};
+use linear_ir::{LoweringStage};
+use codegen_c::CodegenStage;
+use builder::BuildStage;
 
 fn main() -> anyhow::Result<()> {
     let manifest_path = "assets/programs/painter/manifest.json";
     let gen_dir = "generated";
     let out_dir = "out";
 
-    fs::create_dir_all(gen_dir)?;
-    fs::create_dir_all(out_dir)?;
-
-    let manifest = Manifest::from_json(&fs::read_to_string(manifest_path)?)?;
+    println!("SionFlowRT Compiler Starting...");
     
-    // 1. Резолвим параметры
-    let mut parameters = HashMap::new();
-    if let Some(raw_params) = &manifest.parameters {
-        for (name, val) in raw_params {
-            if let Some(s) = val.as_str() {
-                if s == "window.width" {
-                    parameters.insert(name.clone(), manifest.window.as_ref().map(|w| w.width).unwrap_or(0));
-                } else if s == "window.height" {
-                    parameters.insert(name.clone(), manifest.window.as_ref().map(|w| w.height).unwrap_or(0));
-                }
-            } else if let Some(n) = val.as_u64() {
-                parameters.insert(name.clone(), n as usize);
-            }
-        }
-    }
+    let mut ctx = CompilerContext::new(manifest_path, gen_dir, out_dir);
+    let mut pipeline = Pipeline::new();
 
-    let type_map = manifest.type_mapping.clone().unwrap_or_default();
-    let mut programs = HashMap::new();
-    let mut link_plans = HashMap::new();
-
-    for prog_entry in &manifest.programs {
-        println!("Compiling program: {}", prog_entry.id);
-        
-        let logical_graph = load_logical_graph(&prog_entry.path)?;
-        let inline_res = logical_graph.inline();
-        
-        let mut ir_graph = IRGraph::from_inline_result(inline_res)?;
-        ir_passes::run_dce(&mut ir_graph);
-        
-        let mut linear_ir = LinearIR::from_ir_graph(ir_graph, &type_map)?;
-        
-        // 1. Привязываем внешние данные из манифеста (Линковка)
-        let plan = Linker::bind_program(&mut linear_ir, &manifest, &prog_entry.id)?;
-        link_plans.insert(prog_entry.id.clone(), plan);
-
-        // 2. Выводим формы тензоров (Пасс оптимизации)
-        linear_passes::run_shape_inference(&mut linear_ir, &parameters)?;
-        
-        programs.insert(prog_entry.id.clone(), linear_ir);
-    }
-
-    let codegen = CodegenC::new(programs, link_plans, parameters);
-    let gen_code = codegen.generate("sdl2_runtime")?;
+    // 1. Stage: Load & Config
+    pipeline.add_stage(LoadManifestStage);
+    pipeline.add_stage(ResolveParametersStage);
     
-    fs::write(Path::new(gen_dir).join("generated.c"), gen_code.module)?;
-    fs::write(Path::new(gen_dir).join("runtime.c"), gen_code.runtime)?;
+    // 2. Stage: Ingestion & Local Hygiene
+    pipeline.add_stage(IngestionStage::new()
+        .with_pass(IRPasses::run_dce)
+    );
 
-    println!("Running GCC...");
-    let status = Command::new("gcc")
-        .args(["-O3", "-fopenmp", "generated/generated.c", "generated/runtime.c", "-o", "out/generated_bin", "-lSDL2", "-lm"])
-        .status()?;
+    // 3. Stage: Global Orchestration & Analysis
+    pipeline.add_stage(OrchestrationStage::new()
+        .with_pass(OrchestrationPasses::run_dce)
+        .with_pass(OrchestrationPasses::run_shape_inference)
+    );
 
-    if status.success() {
-        println!("Build successful: out/generated_bin");
-    } else {
-        eprintln!("Compilation failed!");
-        std::process::exit(1);
-    }
+    // 4. Stage: Lowering & Backend Optimization
+    pipeline.add_stage(LoweringStage::new()
+        .with_pass(linear_passes::run_loop_fusion)
+    );
 
+    // 5. Stage: Codegen & GCC
+    pipeline.add_stage(CodegenStage);
+    pipeline.add_stage(BuildStage);
+
+    pipeline.execute(&mut ctx)?;
+
+    println!("SionFlowRT Compilation Finished Successfully.");
     Ok(())
 }

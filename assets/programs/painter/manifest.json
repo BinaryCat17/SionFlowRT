@@ -17,7 +17,7 @@
     "mouse_cur": { "type": "MousePosition", "shape": [2] },
     "mouse_old": { "type": "MousePositionPrev", "shape": [2] },
     "is_drawing": { "type": "MouseButton", "shape": [1] },
-    "final_display": { "type": "Display", "shape": ["HEIGHT", "WIDTH", 4] }
+    "display": { "type": "Display", "shape": ["HEIGHT", "WIDTH", 4] }
   },
   "programs": [
     { "id": "brush", "path": "assets/programs/painter/brush.json" },
@@ -28,8 +28,9 @@
     ["sources.mouse_cur", "brush.mouse_raw"],
     ["sources.mouse_old", "brush.mouse_prev_raw"],
     ["sources.is_drawing", "brush.is_drawing"],
+    
     ["brush.output_node", "canvas.brush_input"],
-    ["canvas.final_output", "canvas.prev_frame"],
-    ["canvas.final_output", "sources.final_display"]
+    ["sources.display", "canvas.display"],
+    ["canvas.display", "sources.display"]
   ]
 }

@@ -1,88 +1,57 @@
-use crate::ir_graph::{IRGraph};
 use crate::model::{Op, TensorShape, DataType};
-use petgraph::algo::toposort;
-use petgraph::visit::EdgeRef;
+use crate::pipeline::{Stage, CompilerContext, LinearPassFn};
+use crate::orchestrator::Orchestrator;
 use std::collections::HashMap;
+use serde::Serialize;
 
+#[derive(Debug, Clone, Serialize)]
 pub struct LinearIR {
     pub nodes: Vec<LinearNode>,
     pub outputs: HashMap<String, String>,
+    pub groups: Vec<Vec<usize>>, // Индексы узлов, сгруппированные для Fusion
 }
 
+#[derive(Debug, Clone, Serialize)]
 pub struct LinearNode {
     pub id: String,
     pub op: Op,
-    pub inputs: Vec<String>, 
+    pub inputs: Vec<String>,
     pub shape: TensorShape,
     pub dtype: DataType,
 }
 
-impl LinearIR {
+pub struct LoweringStage {
+    passes: Vec<LinearPassFn>,
+}
 
-    pub fn from_ir_graph(ir: IRGraph, type_map: &HashMap<String, DataType>) -> anyhow::Result<Self> {
-
-        let order = toposort(&ir.graph, None)
-
-            .map_err(|_| anyhow::anyhow!("Cycle detected in IR Graph during linearization"))?;
-
-
-
-        let mut nodes = Vec::new();
-
-        for idx in order {
-
-            let ir_node = &ir.graph[idx];
-
-            
-
-            let mut incoming_edges: Vec<_> = ir.graph.edges_directed(idx, petgraph::Direction::Incoming).collect();
-
-            incoming_edges.sort_by_key(|e| *e.weight());
-
-            
-
-            let mut inputs = Vec::new();
-
-            for edge in incoming_edges {
-
-                inputs.push(ir.graph[edge.source()].id.clone());
-
-            }
-
-
-
-            // Маппинг типа: "float" -> DataType::F32
-
-            let resolved_dtype = ir_node.dtype.as_ref()
-
-                .and_then(|t| type_map.get(t))
-
-                .cloned()
-
-                .unwrap_or(DataType::F32);
-
-
-
-            nodes.push(LinearNode {
-
-                id: ir_node.id.clone(),
-
-                op: ir_node.op.clone(),
-
-                inputs,
-
-                shape: ir_node.shape.clone().unwrap_or_else(|| TensorShape { dims: vec![] }),
-
-                dtype: resolved_dtype,
-
-            });
-
-        }
-
-
-
-        Ok(LinearIR { nodes, outputs: ir.outputs })
-
+impl LoweringStage {
+    pub fn new() -> Self { Self { passes: Vec::new() } }
+    pub fn with_pass(mut self, pass: LinearPassFn) -> Self {
+        self.passes.push(pass);
+        self
     }
+}
 
+impl Stage for LoweringStage {
+    fn name(&self) -> &str { "Lowering: Linearization & Local Optimizations" }
+    fn run(&self, ctx: &mut CompilerContext) -> anyhow::Result<()> {
+        let manifest = ctx.manifest.as_ref().unwrap();
+        let unified_graph = ctx.unified_graph.as_ref().ok_or_else(|| anyhow::anyhow!("No unified graph"))?;
+        
+        // 1. Линеаризация
+        let mut orchestration = Orchestrator::compile_to_orchestration(manifest, unified_graph)?;
+
+        // 2. Запуск локальных Backend-пассов
+        for ir in orchestration.programs.values_mut() {
+            for pass in &self.passes {
+                pass(ir)?;
+            }
+        }
+        
+        ctx.orchestration = Some(orchestration);
+        Ok(())
+    }
+}
+
+impl LinearIR {
 }

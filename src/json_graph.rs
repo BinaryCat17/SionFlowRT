@@ -214,6 +214,7 @@ impl<P: Clone + for<'de> Deserialize<'de> + Serialize> LogicalGraph<P> {
                         id: node.id.clone(),
                         payload: InlinedPayload::Input,
                         dtype: node.interface.outputs.get(0).map(|p| p.dtype.clone()),
+                        shape: node.interface.outputs.get(0).map(|p| p.shape.clone()),
                     });
                     current_node_map.insert(node.id.clone(), new_idx);
                     current_node_map.insert(format!("inputs.{}", node.id), new_idx);
@@ -232,6 +233,7 @@ impl<P: Clone + for<'de> Deserialize<'de> + Serialize> LogicalGraph<P> {
                         id: full_id,
                         payload: InlinedPayload::Primitive(p.clone()),
                         dtype: node.interface.outputs.get(0).map(|p| p.dtype.clone()),
+                        shape: node.interface.outputs.get(0).map(|p| p.shape.clone()),
                     });
                     current_node_map.insert(node.id.clone(), new_idx);
 
@@ -297,6 +299,7 @@ pub struct InlinedNode<P> {
     pub id: String,
     pub payload: InlinedPayload<P>,
     pub dtype: Option<String>,
+    pub shape: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone)]

@@ -1,49 +1,49 @@
-use crate::model::{Op, Dimension, TensorShape};
+use crate::model::{Op, TensorShape, Dimension};
 use crate::linear_ir::LinearIR;
 use crate::shape_engine::ShapeEngine;
-use std::collections::HashMap;
 
-pub fn run_shape_inference(
-    ir: &mut LinearIR, 
-    parameters: &HashMap<String, usize>,
-) -> anyhow::Result<()> {
-    let mut known_shapes: HashMap<String, TensorShape> = HashMap::new();
+pub fn run_loop_fusion(ir: &mut LinearIR) -> anyhow::Result<()> {
+    if ir.nodes.is_empty() { return Ok(()); }
 
-    // 1. Предварительно заполняем уже известные формы (например, от входов, которые проставил линкер)
-    for node in &ir.nodes {
-        if !node.shape.dims.is_empty() {
-            known_shapes.insert(node.id.clone(), node.shape.clone());
+    let mut new_groups: Vec<Vec<usize>> = Vec::new();
+    let mut current_group: Vec<usize> = Vec::new();
+
+    for i in 0..ir.nodes.len() {
+        let node = &ir.nodes[i];
+        let is_fusible = !matches!(node.op, Op::Input { .. } | Op::Constant { .. });
+        
+        if is_fusible {
+            if current_group.is_empty() {
+                current_group.push(i);
+            } else {
+                let prev_node_idx = *current_group.last().unwrap();
+                let prev_node = &ir.nodes[prev_node_idx];
+                
+                if node.shape == prev_node.shape && !node.shape.dims.is_empty() {
+                    current_group.push(i);
+                } else {
+                    new_groups.push(current_group);
+                    current_group = vec!(i);
+                }
+            }
+        } else {
+            if !current_group.is_empty() {
+                new_groups.push(current_group);
+                current_group = Vec::new();
+            }
+            new_groups.push(vec![i]);
         }
     }
 
-    // 2. Линейный проход (один раз, так как узлы в топологическом порядке)
-    for node in &mut ir.nodes {
-        let mut input_shapes = Vec::new();
-        for src_id in &node.inputs {
-            if let Some(shape) = known_shapes.get(src_id) {
-                input_shapes.push(shape.clone());
-            }
-        }
-
-        let current_shape = known_shapes.get(&node.id).cloned();
-        let mut new_shape = infer_node_shape(&node.op, &input_shapes, current_shape.as_ref());
-
-        if let Some(ref mut s) = new_shape {
-            for dim in &mut s.dims { 
-                *dim = dim.eval(parameters); 
-                *dim = ShapeEngine::simplify(dim.clone());
-            }
-            
-            // Записываем результат обратно в ноду и в кэш для следующих узлов
-            node.shape = s.clone();
-            known_shapes.insert(node.id.clone(), s.clone());
-        }
+    if !current_group.is_empty() {
+        new_groups.push(current_group);
     }
 
+    ir.groups = new_groups;
     Ok(())
 }
 
-fn infer_node_shape(op: &Op, inputs: &[TensorShape], current: Option<&TensorShape>) -> Option<TensorShape> {
+pub fn infer_node_shape_generic(op: &Op, inputs: &[TensorShape], current: Option<&TensorShape>) -> Option<TensorShape> {
     match op {
         Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Min | Op::Max | Op::Pow => {
             if inputs.is_empty() { return None; }
@@ -57,10 +57,8 @@ fn infer_node_shape(op: &Op, inputs: &[TensorShape], current: Option<&TensorShap
             if let Some(in_s) = inputs.first() {
                 let mut res_dims = Vec::new();
                 let in_volume = ShapeEngine::volume(in_s);
-                
                 let mut wildcard_idx = None;
                 let mut known_volume = Dimension::Value(1);
-
                 let expanded = expand_reshape_dims(&new_shape, &in_s.dims);
 
                 for (i, d) in expanded.iter().enumerate() {
@@ -85,11 +83,24 @@ fn infer_node_shape(op: &Op, inputs: &[TensorShape], current: Option<&TensorShap
             }
         },
         Op::ReduceSum { axis } => {
-            let mut s = inputs.first().cloned()?;
-            let axis_idx = if *axis < 0 { (s.dims.len() as isize + *axis) as usize } else { *axis as usize };
-            if axis_idx < s.dims.len() { s.dims.remove(axis_idx); }
-            if s.dims.is_empty() { s.dims.push(Dimension::Value(1)); }
-            Some(s)
+            let s = inputs.first().cloned()?;
+            let mut dims = s.dims.clone();
+            let rank = dims.len();
+            if rank == 0 { return Some(TensorShape { dims: vec![Dimension::Value(1)] }); }
+            
+            let axis_idx = if *axis < 0 { 
+                (rank as isize + *axis) as usize 
+            } else { 
+                *axis as usize 
+            };
+            
+            if axis_idx < rank { 
+                dims.remove(axis_idx); 
+            }
+            if dims.is_empty() { 
+                dims.push(Dimension::Value(1)); 
+            }
+            Some(TensorShape { dims })
         },
         Op::Constant { values } => Some(TensorShape { dims: vec![Dimension::Value(values.len())] }),
         _ => inputs.first().cloned().or_else(|| current.cloned()),
@@ -100,14 +111,11 @@ fn expand_reshape_dims(dims: &[Dimension], in_dims: &[Dimension]) -> Vec<Dimensi
     if let Some(pos) = dims.iter().position(|d| d.is_ellipsis()) {
         let mut res = Vec::new();
         for i in 0..pos { res.push(dims[i].clone()); }
-        
         let after_count = dims.len() - 1 - pos;
         let take = in_dims.len().saturating_sub(after_count).saturating_sub(pos);
-        
         for i in 0..take { 
             res.push(in_dims[pos + i].clone()); 
         }
-        
         for i in (pos + 1)..dims.len() { res.push(dims[i].clone()); }
         res
     } else {

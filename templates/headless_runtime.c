@@ -1,24 +1,30 @@
 #include <stdio.h>
+#include <math.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
+#include <stdlib.h>
 
 /* --- Parameters --- */
 {% for name, value in parameters -%}
 #define {{ name }} {{ value }}
 {% endfor %}
 
-extern void execute();
+extern void execute_all();
+
+{% for id, res in orchestration.resources -%}
+extern float* resource_{{ id }};
+{% endfor %}
 
 int main(int argc, char* argv[]) {
-    printf("Running in Headless Mode...\n");
+    printf("SionFlow Headless Runtime Starting...\n");
     
-    // Выполняем 10 итераций для примера
-    for(int i = 0; i < 10; ++i) {
-        printf("Iteration %d...\n", i);
-        execute();
+    uint32_t frames = 100; // Run for 100 frames
+    for(uint32_t f = 0; f < frames; ++f) {
+        // Here we could inject mock data into resources
+        execute_all();
     }
-    
-    printf("Headless execution finished.\n");
+
+    printf("Done.\n");
     return 0;
 }
-

@@ -1,34 +1,33 @@
 use crate::ir_graph::IRGraph;
-use petgraph::visit::IntoNodeReferences;
 use petgraph::Direction;
+use petgraph::visit::EdgeRef;
 use std::collections::HashSet;
 
-pub fn run_dce(ir: &mut IRGraph) {
-    let mut to_keep = HashSet::new();
-    let mut stack = Vec::new();
+pub struct IRPasses;
 
-    // 1. Находим все выходы (Output) и узлы, помеченные как результаты графа
-    for (idx, node) in ir.graph.node_references() {
-        if matches!(node.op, crate::model::Op::Output { .. }) {
-            stack.push(idx);
-            to_keep.insert(idx);
-        }
-        // Если ID узла упомянут как реальный ID для какого-то выхода
-        if ir.outputs.values().any(|real_id| real_id == &node.id) {
-            stack.push(idx);
-            to_keep.insert(idx);
-        }
-    }
+impl IRPasses {
+    /// Локальный DCE для одной программы перед слиянием
+    pub fn run_dce(ir: &mut IRGraph) {
+        let mut keep = HashSet::new();
+        let mut worklist = Vec::new();
 
-    // 2. Идем вверх по графу от выходов
-    while let Some(idx) = stack.pop() {
-        for neighbor in ir.graph.neighbors_directed(idx, Direction::Incoming) {
-            if to_keep.insert(neighbor) {
-                stack.push(neighbor);
+        // Корни — это выходы программы
+        for (_name, node_id) in &ir.outputs {
+            if let Some(idx) = ir.graph.node_indices().find(|&i| ir.graph[i].id == *node_id) {
+                worklist.push(idx);
+                keep.insert(idx);
             }
         }
-    }
 
-    // 3. Удаляем все узлы, которые не попали в to_keep
-    ir.graph.retain_nodes(|_, idx| to_keep.contains(&idx));
+        while let Some(idx) = worklist.pop() {
+            for edge in ir.graph.edges_directed(idx, Direction::Incoming) {
+                let src = edge.source();
+                if keep.insert(src) {
+                    worklist.push(src);
+                }
+            }
+        }
+
+        ir.graph.retain_nodes(|_, idx| keep.contains(&idx));
+    }
 }
