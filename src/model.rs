@@ -26,16 +26,53 @@ impl fmt::Display for Dimension {
     }
 }
 
+impl Dimension {
+    pub fn eval(&self, params: &HashMap<String, usize>) -> Dimension {
+        match self {
+            Dimension::Value(v) => Dimension::Value(*v),
+            Dimension::Symbol(s) => {
+                if let Some(&v) = params.get(s) { Dimension::Value(v) }
+                else { Dimension::Symbol(s.clone()) }
+            },
+            Dimension::Add(l, r) => {
+                match (l.eval(params), r.eval(params)) {
+                    (Dimension::Value(lv), Dimension::Value(rv)) => Dimension::Value(lv + rv),
+                    (le, re) => Dimension::Add(Box::new(le), Box::new(re)),
+                }
+            },
+            Dimension::Sub(l, r) => {
+                match (l.eval(params), r.eval(params)) {
+                    (Dimension::Value(lv), Dimension::Value(rv)) => Dimension::Value(lv.saturating_sub(rv)),
+                    (le, re) => Dimension::Sub(Box::new(le), Box::new(re)),
+                }
+            },
+            Dimension::Mul(l, r) => {
+                match (l.eval(params), r.eval(params)) {
+                    (Dimension::Value(lv), Dimension::Value(rv)) => Dimension::Value(lv * rv),
+                    (le, re) => Dimension::Mul(Box::new(le), Box::new(re)),
+                }
+            },
+            Dimension::Div(l, r) => {
+                match (l.eval(params), r.eval(params)) {
+                    (Dimension::Value(lv), Dimension::Value(rv)) if rv != 0 => Dimension::Value(lv / rv),
+                    (le, re) => Dimension::Div(Box::new(le), Box::new(re)),
+                }
+            },
+        }
+    }
+}
+
 pub fn sanitize_id(id: &str) -> String {
     id.replace("/", "__")
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum DataType {
     F32, I32, U32,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(transparent)]
 pub struct TensorShape {
     pub dims: Vec<Dimension>,
 }
@@ -59,162 +96,48 @@ impl TensorShape {
     }
 }
 
-macro_rules! define_ops {
-    (
-        unary: { $($un_name:ident => $un_expr:expr),* },
-        binary: { $($bin_name:ident => $bin_expr:expr),* },
-        special: { $($spec_name:ident { $($f_name:ident : $f_type:ty),* }),* }
-    ) => {
-        #[derive(Debug, Serialize, Deserialize, Clone)]
-        pub enum Op {
-            $($un_name { input: String },)*
-            $($bin_name { left: String, right: String },)*
-            $($spec_name { $($f_name : $f_type),* },)*
-        }
-
-        impl Op {
-            pub fn get_dependencies(&self) -> Vec<String> {
-                match self {
-                    $(Op::$un_name { input } => vec![input.clone()],)*
-                    $(Op::$bin_name { left, right } => vec![left.clone(), right.clone()],)*
-                    Op::Input { .. } | Op::Constant { .. } => vec![],
-                    Op::Transpose { input, .. } | Op::ReduceSum { input, .. } | Op::Output { input, .. } | Op::Broadcast { input } | Op::Reshape { input, .. } => vec![input.clone()],
-                    Op::MatMul { left, right } | Op::Conv { input: left, kernel: right } => vec![left.clone(), right.clone()],
-                    Op::Clamp { input, min, max } => vec![input.clone(), min.clone(), max.clone()],
-                    Op::Call { inputs, .. } => inputs.values().cloned().collect(),
-                }
-            }
-
-            pub fn map_dependencies<F>(&self, mut f: F) -> Self 
-            where F: FnMut(&str) -> String {
-                match self {
-                    $(Op::$un_name { input } => Op::$un_name { input: f(input) },)*
-                    $(Op::$bin_name { left, right } => Op::$bin_name { left: f(left), right: f(right) },)*
-                    Op::Input { name } => Op::Input { name: name.clone() },
-                    Op::Constant { values } => Op::Constant { values: values.clone() },
-                    Op::Transpose { input, permutation } => Op::Transpose { input: f(input), permutation: permutation.clone() },
-                    Op::ReduceSum { input, axis } => Op::ReduceSum { input: f(input), axis: *axis },
-                    Op::MatMul { left, right } => Op::MatMul { left: f(left), right: f(right) },
-                    Op::Conv { input, kernel } => Op::Conv { input: f(input), kernel: f(kernel) },
-                    Op::Broadcast { input } => Op::Broadcast { input: f(input) },
-                    Op::Reshape { input, new_shape } => Op::Reshape { input: f(input), new_shape: new_shape.clone() },
-                    Op::Clamp { input, min, max } => Op::Clamp { input: f(input), min: f(min), max: f(max) },
-                    Op::Output { name, input } => Op::Output { name: name.clone(), input: f(input) },
-                    Op::Call { subgraph, inputs } => {
-                        let mut new_inputs = HashMap::new();
-                        for (k, v) in inputs {
-                            new_inputs.insert(k.clone(), f(v));
-                        }
-                        Op::Call { subgraph: subgraph.clone(), inputs: new_inputs }
-                    },
-                }
-            }
-
-            pub fn infer_shape(&self, get_node_shape: impl Fn(&str) -> Option<Vec<Dimension>>) -> Option<Vec<Dimension>> {
-                match self {
-                    $(Op::$bin_name { left, right } => {
-                        let l = get_node_shape(left);
-                        let r = get_node_shape(right);
-                        match (l, r) {
-                            (Some(ld), Some(rd)) => if ld.len() >= rd.len() { Some(ld) } else { Some(rd) },
-                            (Some(ld), None) => Some(ld),
-                            (None, Some(rd)) => Some(rd),
-                            _ => None,
-                        }
-                    })*
-                    $(Op::$un_name { input } |)* Op::Output { input, .. } | Op::Broadcast { input } | Op::Clamp { input, .. } => get_node_shape(input),
-                    Op::Reshape { new_shape, .. } => Some(new_shape.clone()),
-                    Op::Transpose { input, permutation } => {
-                        get_node_shape(input).map(|dims| permutation.iter().map(|&i| dims[i].clone()).collect())
-                    }
-                    Op::ReduceSum { input, axis } => {
-                        get_node_shape(input).map(|mut dims| {
-                            if *axis < dims.len() { dims.remove(*axis); }
-                            dims
-                        })
-                    }
-                    Op::MatMul { left, right } => {
-                        let l = get_node_shape(left)?;
-                        let r = get_node_shape(right)?;
-                        if l.len() == 2 && r.len() == 2 {
-                            Some(vec![l[0].clone(), r[1].clone()])
-                        } else { None }
-                    }
-                    Op::Conv { input, kernel } => {
-                        let in_s = get_node_shape(input)?;
-                        let ker_s = get_node_shape(kernel)?;
-                        let mut out_s = Vec::new();
-                        for i in 0..in_s.len() {
-                            if i < ker_s.len() {
-                                out_s.push(Dimension::Add(
-                                    Box::new(Dimension::Sub(Box::new(in_s[i].clone()), Box::new(ker_s[i].clone()))),
-                                    Box::new(Dimension::Value(1))
-                                ));
-                            } else {
-                                out_s.push(in_s[i].clone());
-                            }
-                        }
-                        Some(out_s)
-                    }
-                    _ => None,
-                }
-            }
-
-            pub fn generate_c_body(&self, prog_id: &str, node_id: &str, target_idx: &str, get_index_expr: impl Fn(&str) -> String) -> String {
-                let buf = |id: &str, idx: &str| format!("buffer_{}_{}[{}]", prog_id, sanitize_id(id), idx);
-                let target = buf(node_id, target_idx);
-
-                match self {
-                    $(Op::$un_name { input } => {
-                        let val = buf(input, &get_index_expr(input));
-                        let expr = $un_expr.replace("{}", &val);
-                        format!("{} = {};", target, expr)
-                    })*
-                    $(Op::$bin_name { left, right } => {
-                        let l_val = buf(left, &get_index_expr(left));
-                        let r_val = buf(right, &get_index_expr(right));
-                        let expr = $bin_expr.replacen("{}", &l_val, 1).replacen("{}", &r_val, 1);
-                        format!("{} = {};", target, expr)
-                    })*
-                    Op::Clamp { input, min, max } => format!("{} = fminf(fmaxf({}, {}), {});", target, buf(input, &get_index_expr(input)), buf(min, &get_index_expr(min)), buf(max, &get_index_expr(max))),
-                    Op::Transpose { input, .. } | Op::Output { input, .. } | Op::Broadcast { input } | Op::Reshape { input, .. } => format!("{} = {};", target, buf(input, &get_index_expr(input))),
-                    _ => "".to_string(),
-                }
-            }
-        }
-    };
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub enum Op {
+    // Unary
+    Sin, Abs, Sqrt, Square, Exp, Log,
+    // Binary
+    Add, Sub, Mul, Div, Min, Max, Pow,
+    // Special
+    Input { name: String },
+    Constant { values: Vec<f32> },
+    Transpose { permutation: Vec<usize> },
+    ReduceSum { axis: isize },
+    MatMul,
+    Conv,
+    Output { name: String },
+    Broadcast,
+    Reshape { new_shape: Vec<Dimension> },
+    Clamp
 }
 
-define_ops! {
-    unary: {
-        Sin => "sinf({})",
-        Abs => "fabsf({})",
-        Sqrt => "sqrtf({})",
-        Square => "({}) * ({})",
-        Exp => "expf({})",
-        Log => "logf({})"
-    },
-    binary: {
-        Add => "{} + {}",
-        Sub => "{} - {}",
-        Mul => "{} * {}",
-        Div => "{} / ({} + 1e-9f)",
-        Min => "fminf({}, {})",
-        Max => "fmaxf({}, {})",
-        Pow => "powf({}, {})"
-    },
-    special: {
-        Input { name: String },
-        Constant { values: Vec<f32> },
-        Transpose { input: String, permutation: Vec<usize> },
-        ReduceSum { input: String, axis: usize },
-        MatMul { left: String, right: String },
-        Conv { input: String, kernel: String },
-        Call { subgraph: String, inputs: HashMap<String, String> },
-        Output { name: String, input: String },
-        Broadcast { input: String },
-        Reshape { input: String, new_shape: Vec<Dimension> },
-        Clamp { input: String, min: String, max: String }
+impl Op {
+    pub fn generate_c_body(&self, prog_id: &str, node_id: &str, target_idx: &str, inputs: &[String]) -> String {
+        let target = format!("buffer_{}_{}[{}]", prog_id, sanitize_id(node_id), target_idx);
+
+        match self {
+            Op::Sin => format!("{} = sinf({});", target, inputs[0]),
+            Op::Abs => format!("{} = fabsf({});", target, inputs[0]),
+            Op::Sqrt => format!("{} = sqrtf({});", target, inputs[0]),
+            Op::Square => format!("{} = ({}) * ({});", target, inputs[0], inputs[0]),
+            Op::Exp => format!("{} = expf({});", target, inputs[0]),
+            Op::Log => format!("{} = logf({});", target, inputs[0]),
+            
+            Op::Add => format!("{} = {} + {};", target, inputs[0], inputs[1]),
+            Op::Sub => format!("{} = {} - {};", target, inputs[0], inputs[1]),
+            Op::Mul => format!("{} = {} * {};", target, inputs[0], inputs[1]),
+            Op::Div => format!("{} = {} / ({} + 1e-9f);", target, inputs[0], inputs[1]),
+            Op::Min => format!("{} = fminf({}, {});", target, inputs[0], inputs[1]),
+            Op::Max => format!("{} = fmaxf({}, {});", target, inputs[0], inputs[1]),
+            Op::Pow => format!("{} = powf({}, {});", target, inputs[0], inputs[1]),
+            
+            Op::Clamp => format!("{} = fminf(fmaxf({}, {}), {});", target, inputs[0], inputs[1], inputs[2]),
+            _ => "".to_string(),
+        }
     }
 }
 
@@ -222,6 +145,7 @@ define_ops! {
 pub struct Node {
     pub id: String,
     pub op: Op,
+    pub inputs: Vec<String>,
     pub shape: TensorShape,
     pub dtype: DataType,
     pub strides: Option<Vec<String>>,
@@ -233,9 +157,52 @@ impl Node {
     }
 }
 
+pub struct KernelRegistry;
+impl KernelRegistry {
+    pub fn get_interface(op: &Op) -> crate::graph_ext::NodeInterface {
+        use crate::graph_ext::Port;
+        let f32_scalar = serde_json::json!([1]);
+        let f32_id = "F32".to_string();
+
+        match op {
+            Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Min | Op::Max | Op::Pow | Op::MatMul | Op::Conv => crate::graph_ext::NodeInterface {
+                inputs: vec![
+                    Port { name: "left".into(), dtype_id: f32_id.clone(), shape: f32_scalar.clone() },
+                    Port { name: "right".into(), dtype_id: f32_id.clone(), shape: f32_scalar.clone() }
+                ],
+                outputs: vec![Port { name: "output".into(), dtype_id: f32_id, shape: f32_scalar }]
+            },
+            Op::Sin | Op::Abs | Op::Sqrt | Op::Square | Op::Exp | Op::Log | Op::ReduceSum { .. } | Op::Reshape { .. } | Op::Transpose { .. } | Op::Broadcast => crate::graph_ext::NodeInterface {
+                inputs: vec![Port { name: "input".into(), dtype_id: f32_id.clone(), shape: f32_scalar.clone() }],
+                outputs: vec![Port { name: "output".into(), dtype_id: f32_id, shape: f32_scalar }]
+            },
+            Op::Clamp => crate::graph_ext::NodeInterface {
+                inputs: vec![
+                    Port { name: "input".into(), dtype_id: f32_id.clone(), shape: f32_scalar.clone() },
+                    Port { name: "min".into(), dtype_id: f32_id.clone(), shape: f32_scalar.clone() },
+                    Port { name: "max".into(), dtype_id: f32_id.clone(), shape: f32_scalar.clone() }
+                ],
+                outputs: vec![Port { name: "output".into(), dtype_id: f32_id, shape: f32_scalar }]
+            },
+            Op::Constant { .. } => crate::graph_ext::NodeInterface {
+                inputs: vec![],
+                outputs: vec![Port { name: "output".into(), dtype_id: f32_id, shape: f32_scalar }]
+            },
+            Op::Input { .. } => crate::graph_ext::NodeInterface {
+                inputs: vec![],
+                outputs: vec![Port { name: "output".into(), dtype_id: f32_id, shape: f32_scalar }]
+            },
+            Op::Output { .. } => crate::graph_ext::NodeInterface {
+                inputs: vec![Port { name: "input".into(), dtype_id: f32_id, shape: f32_scalar.clone() }],
+                outputs: vec![]
+            },
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ComputationalGraph {
-    pub imports: Option<std::collections::HashMap<String, String>>,
+    pub imports: Option<HashMap<String, String>>,
     pub nodes: Vec<Node>,
 }
 

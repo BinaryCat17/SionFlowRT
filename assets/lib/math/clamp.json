@@ -1,34 +1,19 @@
 {
+  "inputs": [
+    { "name": "input", "dtype": "F32", "shape": ["_"] },
+    { "name": "min", "dtype": "F32", "shape": ["_"] },
+    { "name": "max", "dtype": "F32", "shape": ["_"] }
+  ],
+  "outputs": [
+    { "name": "output", "dtype": "F32", "shape": ["_"] }
+  ],
   "nodes": [
-    {
-      "id": "input",
-      "op": { "Input": { "name": "input" } },
-      "shape": { "dims": ["_"] },
-      "dtype": "F32"
-    },
-    {
-      "id": "min",
-      "op": { "Input": { "name": "min" } },
-      "shape": { "dims": ["_"] },
-      "dtype": "F32"
-    },
-    {
-      "id": "max",
-      "op": { "Input": { "name": "max" } },
-      "shape": { "dims": ["_"] },
-      "dtype": "F32"
-    },
-    {
-      "id": "res",
-      "op": { "Clamp": { "input": "input", "min": "min", "max": "max" } },
-      "shape": { "dims": ["_"] },
-      "dtype": "F32"
-    },
-    {
-      "id": "out",
-      "op": { "Output": { "name": "default", "input": "res" } },
-      "shape": { "dims": ["_"] },
-      "dtype": "F32"
-    }
+    { "id": "res", "op": "Clamp" }
+  ],
+  "links": [
+    ["input", "res.input"],
+    ["min", "res.min"],
+    ["max", "res.max"],
+    ["res.output", "output"]
   ]
 }

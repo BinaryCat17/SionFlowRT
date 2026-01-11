@@ -2,8 +2,9 @@ mod model;
 mod compiler;
 mod codegen_c;
 mod manifest;
+mod graph_ext;
 
-use model::ComputationalGraph;
+use model::{Op, ComputationalGraph, Node, DataType, TensorShape, KernelRegistry};
 use compiler::Compiler;
 use codegen_c::CodegenC;
 use manifest::Manifest;
@@ -13,9 +14,30 @@ use std::fs;
 use std::process::Command;
 use std::path::Path;
 
+use graph_ext::LogicalGraph;
+
 pub struct CompiledProgram {
     pub compiler: Compiler,
     pub execution_order: Vec<NodeIndex>,
+}
+
+fn load_logical_graph(path: &str) -> anyhow::Result<LogicalGraph<Op>> {
+    let path_with_ext = if path.ends_with(".json") { path.to_string() } else { format!("{}.json", path) };
+    let content = fs::read_to_string(&path_with_ext)
+        .map_err(|e| anyhow::anyhow!("Failed to read graph file {}: {}", path_with_ext, e))?;
+    
+    LogicalGraph::from_json(
+        &content, 
+        |sub_path| {
+            let resolved_path = if Path::new(sub_path).exists() || sub_path.starts_with("assets/") {
+                sub_path.to_string()
+            } else {
+                format!("assets/lib/{}", sub_path)
+            };
+            load_logical_graph(&resolved_path)
+        },
+        |op| KernelRegistry::get_interface(op)
+    )
 }
 
 fn main() -> anyhow::Result<()> {
@@ -30,9 +52,48 @@ fn main() -> anyhow::Result<()> {
     let mut programs = HashMap::new();
 
     for prog_entry in &manifest.programs {
-        let graph = ComputationalGraph::from_json(&fs::read_to_string(&prog_entry.path)?)?;
+        let logical_graph = load_logical_graph(&prog_entry.path)?;
+        let flat_records = logical_graph.flatten()?;
+        
+        let mut nodes = Vec::new();
+        for rec in flat_records {
+            if let Some(op) = rec.payload {
+                let shape: TensorShape = serde_json::from_value(rec.interface.outputs[0].shape.clone())?;
+                nodes.push(Node {
+                    id: rec.id,
+                    op,
+                    inputs: rec.inputs,
+                    shape,
+                    dtype: DataType::F32, // TODO: map rec.interface.outputs[0].dtype_id
+                    strides: None,
+                });
+            } else if rec.is_input {
+                let shape: TensorShape = serde_json::from_value(rec.interface.outputs[0].shape.clone())?;
+                nodes.push(Node {
+                    id: rec.id.clone(),
+                    op: Op::Input { name: rec.id },
+                    inputs: vec![],
+                    shape,
+                    dtype: DataType::F32,
+                    strides: None,
+                });
+            } else if rec.is_output {
+                let shape: TensorShape = serde_json::from_value(rec.interface.inputs[0].shape.clone())?;
+                nodes.push(Node {
+                    id: rec.id.clone(),
+                    op: Op::Output { name: rec.id },
+                    inputs: rec.inputs,
+                    shape,
+                    dtype: DataType::F32,
+                    strides: None,
+                });
+            }
+        }
+
+        let flat_graph = ComputationalGraph { imports: None, nodes };
+        
         let mut compiler = Compiler::new();
-        let execution_order = compiler.build(graph)?;
+        let execution_order = compiler.build(flat_graph)?;
         
         // Разрешаем неопределенные размерности (_) на основе манифеста
         compiler.resolve_shapes(&prog_entry.id, &manifest, &execution_order, &programs)?;

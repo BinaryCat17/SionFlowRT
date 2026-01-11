@@ -1,61 +1,28 @@
 {
-  "imports": {
-    "math": "assets/lib/math"
-  },
+  "inputs": [
+    { "name": "brush_input", "dtype": "F32", "shape": ["HEIGHT", "WIDTH", 4] },
+    { "name": "prev_frame", "dtype": "F32", "shape": ["HEIGHT", "WIDTH", 4] }
+  ],
+  "outputs": [
+    { "name": "final_output", "dtype": "F32", "shape": ["HEIGHT", "WIDTH", 4] }
+  ],
   "nodes": [
-    {
-      "id": "brush_input",
-      "op": { "Input": { "name": "brush_input" } },
-      "shape": { "dims": ["HEIGHT", "WIDTH", 4] },
-      "dtype": "F32"
-    },
-    {
-      "id": "prev_frame",
-      "op": { "Input": { "name": "prev_frame" } },
-      "shape": { "dims": ["HEIGHT", "WIDTH", 4] },
-      "dtype": "F32"
-    },
-    {
-      "id": "one",
-      "op": { "Constant": { "values": [1.0] } },
-      "shape": { "dims": [1] },
-      "dtype": "F32"
-    },
-    {
-      "id": "zero",
-      "op": { "Constant": { "values": [0.0] } },
-      "shape": { "dims": [1] },
-      "dtype": "F32"
-    },
-    {
-      "id": "brush_mask_raw",
-      "op": { "ReduceSum": { "input": "brush_input", "axis": 2 } },
-      "shape": { "dims": ["HEIGHT", "WIDTH"] },
-      "dtype": "F32"
-    },
-    {
-      "id": "brush_mask_2d",
-      "op": { "Call": { "subgraph": "math/clamp", "inputs": { "input": "brush_mask_raw", "min": "zero", "max": "one" } } },
-      "shape": { "dims": ["HEIGHT", "WIDTH"] },
-      "dtype": "F32"
-    },
-    {
-      "id": "brush_mask_3d",
-      "op": { "Reshape": { "input": "brush_mask_2d", "new_shape": ["HEIGHT", "WIDTH", 1] } },
-      "shape": { "dims": ["HEIGHT", "WIDTH", 1] },
-      "dtype": "F32"
-    },
-    {
-      "id": "combined",
-      "op": { "Call": { "subgraph": "math/lerp", "inputs": { "a": "prev_frame", "b": "brush_input", "t": "brush_mask_3d" } } },
-      "shape": { "dims": ["HEIGHT", "WIDTH", 4] },
-      "dtype": "F32"
-    },
-    {
-      "id": "final_output",
-      "op": { "Output": { "name": "default", "input": "combined" } },
-      "shape": { "dims": ["HEIGHT", "WIDTH", 4] },
-      "dtype": "F32"
-    }
+    { "id": "one", "op": { "Constant": { "values": [1.0] } } },
+    { "id": "zero", "op": { "Constant": { "values": [0.0] } } },
+    { "id": "brush_mask_raw", "op": { "ReduceSum": { "axis": 2 } } },
+    { "id": "brush_mask_2d", "subgraph": "math/clamp" },
+    { "id": "brush_mask_3d", "op": { "Reshape": { "new_shape": ["HEIGHT", "WIDTH", 1] } } },
+    { "id": "combined", "subgraph": "math/lerp" }
+  ],
+  "links": [
+    ["brush_input", "brush_mask_raw.input"],
+    ["brush_mask_raw.output", "brush_mask_2d.input"],
+    ["zero.output", "brush_mask_2d.min"],
+    ["one.output", "brush_mask_2d.max"],
+    ["brush_mask_2d.output", "brush_mask_3d.input"],
+    ["prev_frame", "combined.a"],
+    ["brush_input", "combined.b"],
+    ["brush_mask_3d.output", "combined.t"],
+    ["combined.output", "final_output"]
   ]
 }

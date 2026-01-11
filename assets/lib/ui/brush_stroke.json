@@ -1,0 +1,32 @@
+{
+  "imports": {
+    "math": "assets/lib/math"
+  },
+  "inputs": [
+    { "name": "dist", "dtype": "F32", "shape": ["_"] },
+    { "name": "radius", "dtype": "F32", "shape": ["_"] },
+    { "name": "color", "dtype": "F32", "shape": ["_"] },
+    { "name": "is_active", "dtype": "F32", "shape": ["_"] }
+  ],
+  "outputs": [
+    { "name": "output", "dtype": "F32", "shape": ["_"] }
+  ],
+  "nodes": [
+    { "id": "inv_dist", "op": "Sub" },
+    { "id": "scale_val", "op": { "Constant": { "values": [1000.0] } } },
+    { "id": "scaled_dist", "op": "Mul" },
+    { "id": "zero", "op": { "Constant": { "values": [0.0] } } },
+    { "id": "one", "op": { "Constant": { "values": [1.0] } } },
+    { "id": "mask", "subgraph": "math/clamp" },
+    { "id": "active_mask", "op": "Mul" },
+    { "id": "colored_output", "op": "Mul" }
+  ],
+  "links": [
+    ["radius", "inv_dist.left"], ["dist", "inv_dist.right"],
+    ["inv_dist.output", "scaled_dist.left"], ["scale_val.output", "scaled_dist.right"],
+    ["scaled_dist.output", "mask.input"], ["zero.output", "mask.min"], ["one.output", "mask.max"],
+    ["mask.output", "active_mask.left"], ["is_active", "active_mask.right"],
+    ["color", "colored_output.left"], ["active_mask.output", "colored_output.right"],
+    ["colored_output.output", "output"]
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "inputs": [
+    { "name": "a", "dtype": "F32", "shape": ["_"] },
+    { "name": "b", "dtype": "F32", "shape": ["_"] }
+  ],
+  "outputs": [
+    { "name": "output", "dtype": "F32", "shape": ["_"] }
+  ],
+  "nodes": [
+    { "id": "mul", "op": "Mul" },
+    { "id": "sum", "op": { "ReduceSum": { "axis": -1 } } }
+  ],
+  "links": [
+    ["a", "mul.left"],
+    ["b", "mul.right"],
+    ["mul.output", "sum.input"],
+    ["sum.output", "output"]
+  ]
+}

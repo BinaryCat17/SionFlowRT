@@ -1,46 +1,24 @@
 {
+  "inputs": [
+    { "name": "a", "dtype": "F32", "shape": ["_"] },
+    { "name": "b", "dtype": "F32", "shape": ["_"] },
+    { "name": "t", "dtype": "F32", "shape": ["_"] }
+  ],
+  "outputs": [
+    { "name": "output", "dtype": "F32", "shape": ["_"] }
+  ],
   "nodes": [
-    {
-      "id": "a",
-      "op": { "Input": { "name": "a" } },
-      "shape": { "dims": ["_"] },
-      "dtype": "F32"
-    },
-    {
-      "id": "b",
-      "op": { "Input": { "name": "b" } },
-      "shape": { "dims": ["_"] },
-      "dtype": "F32"
-    },
-    {
-      "id": "t",
-      "op": { "Input": { "name": "t" } },
-      "shape": { "dims": ["_"] },
-      "dtype": "F32"
-    },
-    {
-      "id": "diff",
-      "op": { "Sub": { "left": "b", "right": "a" } },
-      "shape": { "dims": ["_"] },
-      "dtype": "F32"
-    },
-    {
-      "id": "delta",
-      "op": { "Mul": { "left": "diff", "right": "t" } },
-      "shape": { "dims": ["_"] },
-      "dtype": "F32"
-    },
-    {
-      "id": "res",
-      "op": { "Add": { "left": "a", "right": "delta" } },
-      "shape": { "dims": ["_"] },
-      "dtype": "F32"
-    },
-    {
-      "id": "out",
-      "op": { "Output": { "name": "default", "input": "res" } },
-      "shape": { "dims": ["_"] },
-      "dtype": "F32"
-    }
+    { "id": "diff", "op": "Sub" },
+    { "id": "delta", "op": "Mul" },
+    { "id": "res", "op": "Add" }
+  ],
+  "links": [
+    ["b", "diff.left"],
+    ["a", "diff.right"],
+    ["diff.output", "delta.left"],
+    ["t", "delta.right"],
+    ["a", "res.left"],
+    ["delta.output", "res.right"],
+    ["res.output", "output"]
   ]
 }

@@ -1,0 +1,45 @@
+{
+  "imports": {
+    "math": "assets/lib/math"
+  },
+  "inputs": [
+    { "name": "uv", "dtype": "F32", "shape": ["_"] },
+    { "name": "a", "dtype": "F32", "shape": ["_"] },
+    { "name": "b", "dtype": "F32", "shape": ["_"] }
+  ],
+  "outputs": [
+    { "name": "output", "dtype": "F32", "shape": ["_", "_", 1] }
+  ],
+  "nodes": [
+    { "id": "pa", "op": "Sub" },
+    { "id": "ba", "op": "Sub" },
+    { "id": "dot_pa_ba", "subgraph": "math/dot" },
+    { "id": "dot_ba_ba_raw", "subgraph": "math/dot" },
+    { "id": "eps", "op": { "Constant": { "values": [1e-8] } } },
+    { "id": "dot_ba_ba", "op": "Add" },
+    { "id": "h_raw", "op": "Div" },
+    { "id": "zero", "op": { "Constant": { "values": [0.0] } } },
+    { "id": "one", "op": { "Constant": { "values": [1.0] } } },
+    { "id": "h", "subgraph": "math/clamp" },
+    { "id": "h_3d", "op": { "Reshape": { "new_shape": ["_", "_", 1] } } },
+    { "id": "ba_h", "op": "Mul" },
+    { "id": "vec_to_dist", "op": "Sub" },
+    { "id": "dist_raw", "subgraph": "math/distance" },
+    { "id": "dist_3d", "op": { "Reshape": { "new_shape": ["_", "_", 1] } } }
+  ],
+  "links": [
+    ["uv", "pa.left"], ["a", "pa.right"],
+    ["b", "ba.left"], ["a", "ba.right"],
+    ["pa.output", "dot_pa_ba.a"], ["ba.output", "dot_pa_ba.b"],
+    ["ba.output", "dot_ba_ba_raw.a"], ["ba.output", "dot_ba_ba_raw.b"],
+    ["dot_ba_ba_raw.output", "dot_ba_ba.left"], ["eps.output", "dot_ba_ba.right"],
+    ["dot_pa_ba.output", "h_raw.left"], ["dot_ba_ba.output", "h_raw.right"],
+    ["h_raw.output", "h.input"], ["zero.output", "h.min"], ["one.output", "h.max"],
+    ["h.output", "h_3d.input"],
+    ["ba.output", "ba_h.left"], ["h_3d.output", "ba_h.right"],
+    ["pa.output", "vec_to_dist.left"], ["ba_h.output", "vec_to_dist.right"],
+    ["vec_to_dist.output", "dist_raw.a"], ["zero.output", "dist_raw.b"],
+    ["dist_raw.output", "dist_3d.input"],
+    ["dist_3d.output", "output"]
+  ]
+}
