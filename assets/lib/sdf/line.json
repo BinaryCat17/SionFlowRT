@@ -3,12 +3,12 @@
     "math": "assets/lib/math"
   },
   "inputs": [
-    { "name": "uv", "dtype": "F32", "shape": ["..."] },
-    { "name": "a", "dtype": "F32", "shape": ["..."] },
-    { "name": "b", "dtype": "F32", "shape": ["..."] }
+    { "name": "uv", "dtype": "float", "shape": ["..."] },
+    { "name": "a", "dtype": "float", "shape": ["..."] },
+    { "name": "b", "dtype": "float", "shape": ["..."] }
   ],
   "outputs": [
-    { "name": "output", "dtype": "F32", "shape": ["...", 1] }
+    { "name": "output", "dtype": "float", "shape": ["...", 1] }
   ],
   "nodes": [
     { "id": "pa", "op": "Sub" },
@@ -28,8 +28,8 @@
     { "id": "dist_3d", "op": { "Reshape": { "new_shape": ["...", 1] } } }
   ],
   "links": [
-    ["uv", "pa.left"], ["a", "pa.right"],
-    ["b", "ba.left"], ["a", "ba.right"],
+    ["inputs.uv", "pa.left"], ["inputs.a", "pa.right"],
+    ["inputs.b", "ba.left"], ["inputs.a", "ba.right"],
     ["pa.output", "dot_pa_ba.a"], ["ba.output", "dot_pa_ba.b"],
     ["ba.output", "dot_ba_ba_raw.a"], ["ba.output", "dot_ba_ba_raw.b"],
     ["dot_ba_ba_raw.output", "dot_ba_ba.left"], ["eps.output", "dot_ba_ba.right"],
@@ -40,6 +40,6 @@
     ["pa.output", "vec_to_dist.left"], ["ba_h.output", "vec_to_dist.right"],
     ["vec_to_dist.output", "dist_raw.a"], ["zero.output", "dist_raw.b"],
     ["dist_raw.output", "dist_3d.input"],
-    ["dist_3d.output", "output"]
+    ["dist_3d.output", "outputs.output"]
   ]
 }

@@ -5,46 +5,31 @@
     "height": 720
   },
   "parameters": {
-    "WIDTH": 1280,
-    "HEIGHT": 720
+    "WIDTH": "window.width",
+    "HEIGHT": "window.height"
+  },
+  "type_mapping": {
+    "float": "F32",
+    "int": "I32"
+  },
+  "sources": {
+    "scr_uv": { "type": "ScreenUV", "shape": ["HEIGHT", "WIDTH", 2] },
+    "mouse_cur": { "type": "MousePosition", "shape": [2] },
+    "mouse_old": { "type": "MousePositionPrev", "shape": [2] },
+    "is_drawing": { "type": "MouseButton", "shape": [1] },
+    "final_display": { "type": "Display", "shape": ["HEIGHT", "WIDTH", 4] }
   },
   "programs": [
     { "id": "brush", "path": "assets/programs/painter/brush.json" },
     { "id": "canvas", "path": "assets/programs/painter/canvas.json" }
   ],
-  "mappings": [
-    { 
-      "program": "brush", "tensor": "uv", 
-      "source": { "type": "ScreenUV" }, 
-      "shape": ["HEIGHT", "WIDTH", 2] 
-    },
-    { 
-      "program": "brush", "tensor": "mouse_raw", 
-      "source": { "type": "MousePosition" }, 
-      "shape": [2] 
-    },
-    { 
-      "program": "brush", "tensor": "mouse_prev_raw", 
-      "source": { "type": "MousePositionPrev" }, 
-      "shape": [2] 
-    },
-    { 
-      "program": "brush", "tensor": "is_drawing", 
-      "source": { "type": "MouseButton", "button": "left" }, 
-      "shape": [1] 
-    },
-    { 
-      "program": "canvas", "tensor": "brush_input", 
-      "source": { "type": "Link", "program": "brush", "output": "output_node" } 
-    },
-    { 
-      "program": "canvas", "tensor": "prev_frame", 
-      "source": { "type": "Link", "program": "canvas", "output": "final_output" } 
-    },
-    { 
-      "program": "canvas", "tensor": "final_output", 
-      "source": { "type": "Display" },
-      "shape": ["HEIGHT", "WIDTH", 4]
-    }
+  "links": [
+    ["sources.scr_uv", "brush.uv"],
+    ["sources.mouse_cur", "brush.mouse_raw"],
+    ["sources.mouse_old", "brush.mouse_prev_raw"],
+    ["sources.is_drawing", "brush.is_drawing"],
+    ["brush.output_node", "canvas.brush_input"],
+    ["canvas.final_output", "canvas.prev_frame"],
+    ["canvas.final_output", "sources.final_display"]
   ]
 }

@@ -6,6 +6,8 @@ mod ir_graph;
 mod ir_passes;
 mod linear_ir;
 mod linear_passes;
+mod shape_engine;
+mod linker;
 
 use manifest::Manifest;
 use std::collections::HashMap;
@@ -16,6 +18,7 @@ use json_graph::LogicalGraph;
 use ir_graph::IRGraph;
 use linear_ir::LinearIR;
 use codegen_c::CodegenC;
+use linker::Linker;
 
 fn load_logical_graph(path: &str) -> anyhow::Result<LogicalGraph<serde_json::Value>> {
     let path_with_ext = if path.ends_with(".json") { path.to_string() } else { format!("{}.json", path) };
@@ -45,8 +48,26 @@ fn main() -> anyhow::Result<()> {
     fs::create_dir_all(out_dir)?;
 
     let manifest = Manifest::from_json(&fs::read_to_string(manifest_path)?)?;
+    
+    // 1. Резолвим параметры
+    let mut parameters = HashMap::new();
+    if let Some(raw_params) = &manifest.parameters {
+        for (name, val) in raw_params {
+            if let Some(s) = val.as_str() {
+                if s == "window.width" {
+                    parameters.insert(name.clone(), manifest.window.as_ref().map(|w| w.width).unwrap_or(0));
+                } else if s == "window.height" {
+                    parameters.insert(name.clone(), manifest.window.as_ref().map(|w| w.height).unwrap_or(0));
+                }
+            } else if let Some(n) = val.as_u64() {
+                parameters.insert(name.clone(), n as usize);
+            }
+        }
+    }
+
+    let type_map = manifest.type_mapping.clone().unwrap_or_default();
     let mut programs = HashMap::new();
-    let parameters = manifest.parameters.clone().unwrap_or_default();
+    let mut link_plans = HashMap::new();
 
     for prog_entry in &manifest.programs {
         println!("Compiling program: {}", prog_entry.id);
@@ -57,13 +78,19 @@ fn main() -> anyhow::Result<()> {
         let mut ir_graph = IRGraph::from_inline_result(inline_res)?;
         ir_passes::run_dce(&mut ir_graph);
         
-        let mut linear_ir = LinearIR::from_ir_graph(ir_graph)?;
-        linear_passes::run_shape_inference(&mut linear_ir, &parameters, &manifest.mappings, &prog_entry.id)?;
+        let mut linear_ir = LinearIR::from_ir_graph(ir_graph, &type_map)?;
+        
+        // 1. Привязываем внешние данные из манифеста (Линковка)
+        let plan = Linker::bind_program(&mut linear_ir, &manifest, &prog_entry.id)?;
+        link_plans.insert(prog_entry.id.clone(), plan);
+
+        // 2. Выводим формы тензоров (Пасс оптимизации)
+        linear_passes::run_shape_inference(&mut linear_ir, &parameters)?;
         
         programs.insert(prog_entry.id.clone(), linear_ir);
     }
 
-    let codegen = CodegenC::new(programs, &manifest);
+    let codegen = CodegenC::new(programs, link_plans, parameters);
     let gen_code = codegen.generate("sdl2_runtime")?;
     
     fs::write(Path::new(gen_dir).join("generated.c"), gen_code.module)?;

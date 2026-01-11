@@ -1,19 +1,21 @@
 {
   "inputs": [
-    { "name": "input", "dtype": "F32", "shape": ["_"] },
-    { "name": "min", "dtype": "F32", "shape": ["_"] },
-    { "name": "max", "dtype": "F32", "shape": ["_"] }
+    { "name": "input", "dtype": "float", "shape": ["..."] },
+    { "name": "min", "dtype": "float", "shape": ["..."] },
+    { "name": "max", "dtype": "float", "shape": ["..."] }
   ],
   "outputs": [
-    { "name": "output", "dtype": "F32", "shape": ["_"] }
+    { "name": "output", "dtype": "float", "shape": ["..."] }
   ],
   "nodes": [
-    { "id": "res", "op": "Clamp" }
+    { "id": "max_val", "op": "Max" },
+    { "id": "min_val", "op": "Min" }
   ],
   "links": [
-    ["input", "res.input"],
-    ["min", "res.min"],
-    ["max", "res.max"],
-    ["res.output", "output"]
+    ["inputs.input", "max_val.left"],
+    ["inputs.min", "max_val.right"],
+    ["max_val.output", "min_val.left"],
+    ["inputs.max", "min_val.right"],
+    ["min_val.output", "outputs.output"]
   ]
 }

@@ -6,6 +6,10 @@ use std::collections::HashMap;
 #[serde(untagged)]
 pub enum Dimension {
     Value(usize),
+    #[serde(rename = "_")]
+    Wildcard,
+    #[serde(rename = "...")]
+    Ellipsis,
     Symbol(String),
     Add(Box<Dimension>, Box<Dimension>),
     Sub(Box<Dimension>, Box<Dimension>),
@@ -18,6 +22,8 @@ impl fmt::Display for Dimension {
         match self {
             Dimension::Value(v) => write!(f, "{}", v),
             Dimension::Symbol(s) => write!(f, "{}", s),
+            Dimension::Wildcard => write!(f, "_"),
+            Dimension::Ellipsis => write!(f, "..."),
             Dimension::Add(l, r) => write!(f, "({} + {})", l, r),
             Dimension::Sub(l, r) => write!(f, "({} - {})", l, r),
             Dimension::Mul(l, r) => write!(f, "({} * {})", l, r),
@@ -28,12 +34,26 @@ impl fmt::Display for Dimension {
 
 impl Dimension {
     pub fn is_ellipsis(&self) -> bool {
-        matches!(self, Dimension::Symbol(s) if s == "...")
+        match self {
+            Dimension::Ellipsis => true,
+            Dimension::Symbol(s) if s == "..." => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_wildcard(&self) -> bool {
+        match self {
+            Dimension::Wildcard => true,
+            Dimension::Symbol(s) if s == "_" => true,
+            _ => false,
+        }
     }
 
     pub fn eval(&self, params: &HashMap<String, usize>) -> Dimension {
         match self {
             Dimension::Value(v) => Dimension::Value(*v),
+            Dimension::Wildcard => Dimension::Wildcard,
+            Dimension::Ellipsis => Dimension::Ellipsis,
             Dimension::Symbol(s) => {
                 if let Some(&v) = params.get(s) { Dimension::Value(v) }
                 else { Dimension::Symbol(s.clone()) }
@@ -72,7 +92,19 @@ pub fn sanitize_id(id: &str) -> String {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum DataType {
-    F32, I32, U32,
+    F32, F64, I32, I64, U32,
+}
+
+impl DataType {
+    pub fn to_c_type(&self) -> &'static str {
+        match self {
+            DataType::F32 => "float",
+            DataType::F64 => "double",
+            DataType::I32 => "int32_t",
+            DataType::I64 => "int64_t",
+            DataType::U32 => "uint32_t",
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -97,5 +129,4 @@ pub enum Op {
     Output { name: String },
     Broadcast,
     Reshape { new_shape: Vec<Dimension> },
-    Clamp
 }

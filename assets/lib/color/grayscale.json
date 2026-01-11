@@ -4,31 +4,31 @@
       "id": "rgb",
       "op": { "Input": { "name": "rgb" } },
       "shape": { "dims": ["_", "_", 3] },
-      "dtype": "F32"
+      "dtype": "float"
     },
     {
       "id": "weights",
       "op": { "Constant": { "values": [0.299, 0.587, 0.114] } },
       "shape": { "dims": [3] },
-      "dtype": "F32"
+      "dtype": "float"
     },
     {
       "id": "weighted",
       "op": { "Mul": { "left": "rgb", "right": "weights" } },
       "shape": { "dims": ["_", "_", 3] },
-      "dtype": "F32"
+      "dtype": "float"
     },
     {
       "id": "res",
       "op": { "ReduceSum": { "input": "weighted", "axis": 2 } },
       "shape": { "dims": ["_", "_"] },
-      "dtype": "F32"
+      "dtype": "float"
     },
     {
       "id": "out",
       "op": { "Output": { "name": "default", "input": "res" } },
       "shape": { "dims": ["_", "_"] },
-      "dtype": "F32"
+      "dtype": "float"
     }
   ]
 }

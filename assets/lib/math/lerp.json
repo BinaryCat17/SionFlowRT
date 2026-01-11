@@ -1,11 +1,11 @@
 {
   "inputs": [
-    { "name": "a", "dtype": "F32", "shape": ["_"] },
-    { "name": "b", "dtype": "F32", "shape": ["_"] },
-    { "name": "t", "dtype": "F32", "shape": ["_"] }
+    { "name": "a", "dtype": "float", "shape": ["..."] },
+    { "name": "b", "dtype": "float", "shape": ["..."] },
+    { "name": "t", "dtype": "float", "shape": ["..."] }
   ],
   "outputs": [
-    { "name": "output", "dtype": "F32", "shape": ["_"] }
+    { "name": "output", "dtype": "float", "shape": ["..."] }
   ],
   "nodes": [
     { "id": "diff", "op": "Sub" },
@@ -13,12 +13,9 @@
     { "id": "res", "op": "Add" }
   ],
   "links": [
-    ["b", "diff.left"],
-    ["a", "diff.right"],
-    ["diff.output", "delta.left"],
-    ["t", "delta.right"],
-    ["a", "res.left"],
-    ["delta.output", "res.right"],
-    ["res.output", "output"]
+    ["inputs.b", "diff.left"], ["inputs.a", "diff.right"],
+    ["diff.output", "delta.left"], ["inputs.t", "delta.right"],
+    ["inputs.a", "res.left"], ["delta.output", "res.right"],
+    ["res.output", "outputs.output"]
   ]
 }

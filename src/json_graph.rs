@@ -88,17 +88,20 @@ impl<P: Clone + for<'de> Deserialize<'de> + Serialize> LogicalGraph<P> {
         let mut l_graph = LogicalGraph::default();
         let mut port_addresses = HashMap::new();
 
+        // 1. Регистрируем входы графа под именем inputs.NAME
         for in_p in def.inputs {
             let interface = NodeInterface { inputs: vec![], outputs: vec![in_p.clone()] };
             let idx = l_graph.add_node(&in_p.name, Component::Input, interface);
-            port_addresses.insert(in_p.name.clone(), (idx, in_p.name.clone()));
+            port_addresses.insert(format!("inputs.{}", in_p.name), (idx, in_p.name.clone()));
         }
 
+        // 2. Регистрируем выходы графа (пока просто добавляем узлы)
         for out_p in def.outputs {
             let interface = NodeInterface { inputs: vec![Port { name: "value".into(), ..out_p.clone() }], outputs: vec![] };
             l_graph.add_node(&out_p.name, Component::Output, interface);
         }
 
+        // 3. Регистрируем узлы (примитивы и сабграфы)
         for n_def in def.nodes {
             if let Some(sub_path_raw) = n_def.subgraph {
                 let mut actual_path = sub_path_raw.clone();
@@ -114,6 +117,7 @@ impl<P: Clone + for<'de> Deserialize<'de> + Serialize> LogicalGraph<P> {
                 let (sub_in, sub_out) = sub.get_interface();
                 let idx = l_graph.add_node(&n_def.id, Component::Subgraph(sub), NodeInterface { inputs: sub_in, outputs: sub_out.clone() });
                 for p in sub_out {
+                    // Порты сабграфа доступны как NODE.PORT
                     port_addresses.insert(format!("{}.{}", n_def.id, p.name), (idx, p.name));
                 }
             } else if let Some(payload) = n_def.op {
@@ -121,22 +125,26 @@ impl<P: Clone + for<'de> Deserialize<'de> + Serialize> LogicalGraph<P> {
                 let out_ports = interface.outputs.clone();
                 let idx = l_graph.add_node(&n_def.id, Component::Primitive(payload), interface);
                 for p in out_ports {
+                    // Порты примитива доступны как NODE.PORT
                     port_addresses.insert(format!("{}.{}", n_def.id, p.name), (idx, p.name));
                 }
             }
         }
 
+        // 4. Разрешаем линки
         for link_def in def.links {
             let (from, to) = &link_def.0;
             let &(src_idx, ref src_port) = port_addresses.get(from).ok_or_else(|| anyhow::anyhow!("Source port not found: {}", from))?;
             
-            if let Some(dst_idx) = l_graph.node_map.get(to) {
-                if matches!(l_graph.graph[*dst_idx].component, Component::Output) {
+            // Если цель - это outputs.NAME
+            if let Some(target_name) = to.strip_prefix("outputs.") {
+                if let Some(dst_idx) = l_graph.node_map.get(target_name) {
                     l_graph.graph.add_edge(src_idx, *dst_idx, Connection { src_port: src_port.clone(), dst_port: "value".into() });
                     continue;
                 }
             }
 
+            // Иначе цель - это NODE.PORT
             let (dst_id, dst_port) = to.split_once('.').ok_or_else(|| anyhow::anyhow!("Invalid destination port: {}", to))?;
             let dst_idx = *l_graph.node_map.get(dst_id).ok_or_else(|| anyhow::anyhow!("Destination node not found: {}", dst_id))?;
             l_graph.graph.add_edge(src_idx, dst_idx, Connection { src_port: src_port.clone(), dst_port: dst_port.to_string() });
@@ -158,8 +166,16 @@ impl<P: Clone + for<'de> Deserialize<'de> + Serialize> LogicalGraph<P> {
         for idx in self.graph.node_indices() {
             let node = &self.graph[idx];
             match &node.component {
-                Component::Input => { for p in &node.interface.outputs { inputs.push(Port { name: node.id.clone(), ..p.clone() }); } }
-                Component::Output => { for p in &node.interface.inputs { outputs.push(Port { name: node.id.clone(), ..p.clone() }); } }
+                Component::Input => { 
+                    for p in &node.interface.outputs { 
+                        inputs.push(Port { name: node.id.clone(), ..p.clone() }); 
+                    } 
+                }
+                Component::Output => { 
+                    for p in &node.interface.inputs { 
+                        outputs.push(Port { name: node.id.clone(), ..p.clone() }); 
+                    } 
+                }
                 _ => {}
             }
         }
@@ -192,12 +208,15 @@ impl<P: Clone + for<'de> Deserialize<'de> + Serialize> LogicalGraph<P> {
             if let Component::Input = &node.component {
                 if let Some(&ext_idx) = input_mappings.get(&node.id) {
                     current_node_map.insert(node.id.clone(), ext_idx);
+                    current_node_map.insert(format!("inputs.{}", node.id), ext_idx);
                 } else if prefix.is_empty() {
                     let new_idx = result_graph.add_node(InlinedNode {
                         id: node.id.clone(),
                         payload: InlinedPayload::Input,
+                        dtype: node.interface.outputs.get(0).map(|p| p.dtype.clone()),
                     });
                     current_node_map.insert(node.id.clone(), new_idx);
+                    current_node_map.insert(format!("inputs.{}", node.id), new_idx);
                 }
             }
         }
@@ -212,6 +231,7 @@ impl<P: Clone + for<'de> Deserialize<'de> + Serialize> LogicalGraph<P> {
                     let new_idx = result_graph.add_node(InlinedNode {
                         id: full_id,
                         payload: InlinedPayload::Primitive(p.clone()),
+                        dtype: node.interface.outputs.get(0).map(|p| p.dtype.clone()),
                     });
                     current_node_map.insert(node.id.clone(), new_idx);
 
@@ -219,8 +239,10 @@ impl<P: Clone + for<'de> Deserialize<'de> + Serialize> LogicalGraph<P> {
                         let src_node_idx = edge.source();
                         let src_node_id = &self.graph[src_node_idx].id;
                         let lookup_key = format!("{}.{}", src_node_id, edge.weight().src_port);
+                        
                         let src_flat_idx = current_node_map.get(&lookup_key)
-                            .or_else(|| current_node_map.get(src_node_id));
+                            .or_else(|| current_node_map.get(src_node_id))
+                            .or_else(|| current_node_map.get(&format!("inputs.{}", src_node_id)));
 
                         if let Some(&flat_idx) = src_flat_idx {
                             let port_idx = node.interface.inputs.iter().position(|p| p.name == edge.weight().dst_port).unwrap_or(0);
@@ -235,7 +257,8 @@ impl<P: Clone + for<'de> Deserialize<'de> + Serialize> LogicalGraph<P> {
                         let src_node_id = &self.graph[src_node_idx].id;
                         let lookup_key = format!("{}.{}", src_node_id, edge.weight().src_port);
                         let src_flat_idx = current_node_map.get(&lookup_key)
-                            .or_else(|| current_node_map.get(src_node_id));
+                            .or_else(|| current_node_map.get(src_node_id))
+                            .or_else(|| current_node_map.get(&format!("inputs.{}", src_node_id)));
 
                         if let Some(&flat_idx) = src_flat_idx {
                             sub_inputs.insert(edge.weight().dst_port.clone(), flat_idx);
@@ -253,10 +276,12 @@ impl<P: Clone + for<'de> Deserialize<'de> + Serialize> LogicalGraph<P> {
                         let src_node_id = &self.graph[src_node_idx].id;
                         let lookup_key = format!("{}.{}", src_node_id, edge.weight().src_port);
                         let src_flat_idx = current_node_map.get(&lookup_key)
-                            .or_else(|| current_node_map.get(src_node_id));
+                            .or_else(|| current_node_map.get(src_node_id))
+                            .or_else(|| current_node_map.get(&format!("inputs.{}", src_node_id)));
 
                         if let Some(&flat_idx) = src_flat_idx {
                             output_mappings.insert(node.id.clone(), flat_idx);
+                            output_mappings.insert(format!("outputs.{}", node.id), flat_idx);
                         }
                     }
                 }
@@ -271,6 +296,7 @@ impl<P: Clone + for<'de> Deserialize<'de> + Serialize> LogicalGraph<P> {
 pub struct InlinedNode<P> {
     pub id: String,
     pub payload: InlinedPayload<P>,
+    pub dtype: Option<String>,
 }
 
 #[derive(Debug, Clone)]

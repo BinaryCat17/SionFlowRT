@@ -4,7 +4,7 @@
       "id": "input",
       "op": { "Input": { "name": "input" } },
       "shape": { "dims": ["_", "_", "_"] },
-      "dtype": "F32"
+      "dtype": "float"
     },
     {
       "id": "kernel",
@@ -14,13 +14,13 @@
         0.111, 0.111, 0.111
       ] } },
       "shape": { "dims": [3, 3] },
-      "dtype": "F32"
+      "dtype": "float"
     },
     {
       "id": "output",
       "op": { "Conv": { "input": "input", "kernel": "kernel" } },
       "shape": { "dims": ["_", "_", "_"] },
-      "dtype": "F32"
+      "dtype": "float"
     }
   ]
 }

@@ -1,12 +1,13 @@
 use crate::model::{Op, TensorShape, sanitize_id};
-use crate::manifest::Manifest;
 use crate::linear_ir::LinearIR;
+use crate::linker::LinkPlan;
 use tera::{Tera, Context};
 use std::collections::HashMap;
 
-pub struct CodegenC<'a> {
+pub struct CodegenC {
     programs: HashMap<String, LinearIR>,
-    _manifest: &'a Manifest,
+    link_plans: HashMap<String, LinkPlan>,
+    parameters: HashMap<String, usize>,
     tera: Tera,
 }
 
@@ -42,18 +43,21 @@ fn generate_op_c_body(op: &Op, prog_id: &str, node_id: &str, target_idx: &str, i
         Op::Max => format!("{} = fmaxf({}, {});", target, get_in(0), get_in(1)),
         Op::Pow => format!("{} = powf({}, {});", target, get_in(0), get_in(1)),
         
-        Op::Clamp => format!("{} = fminf(fmaxf({}, {}), {});", target, get_in(0), get_in(1), get_in(2)),
         _ => "".to_string(),
     }
 }
 
-impl<'a> CodegenC<'a> {
-    pub fn new(programs: HashMap<String, LinearIR>, manifest: &'a Manifest) -> Self {
+impl CodegenC {
+    pub fn new(
+        programs: HashMap<String, LinearIR>, 
+        link_plans: HashMap<String, LinkPlan>,
+        parameters: HashMap<String, usize>
+    ) -> Self {
         let mut tera = Tera::default();
         tera.add_raw_template("module", &include_raw("templates/module.c")).unwrap();
         tera.add_raw_template("sdl2_runtime", &include_raw("templates/sdl2_runtime.c")).unwrap();
         tera.add_raw_template("headless_runtime", &include_raw("templates/headless_runtime.c")).unwrap();
-        Self { programs, _manifest: manifest, tera }
+        Self { programs, link_plans, parameters, tera }
     }
 
     pub fn generate(&self, runtime_template: &str) -> anyhow::Result<GeneratedCode> {
@@ -87,7 +91,7 @@ impl<'a> CodegenC<'a> {
                     "is_input": is_input,
                     "is_output": is_output,
                     "is_stateful": false,
-                    "c_type": "float"
+                    "c_type": node.dtype.to_c_type()
                 });
 
                 nodes_data.push(node_json.clone());
@@ -103,17 +107,14 @@ impl<'a> CodegenC<'a> {
                     alias_node["node_id"] = serde_json::json!(sanitize_id(alias));
                     alias_node["is_alias"] = serde_json::json!(true);
                     alias_node["real_id"] = real_node["id"].clone();
-                    
-                    // Мы не добавляем его в nodes_data, чтобы не создавать второй массив,
-                    // а добавим специальные объявления в шаблоны.
-                    // Хотя для простоты можно добавить и в nodes_data, но пометить.
                     prog_nodes_map.insert(alias.clone(), alias_node);
                 }
             }
 
-            programs_data.push(serde_json::json!({ 
-                "id": prog_id, 
+            programs_data.push(serde_json::json!({
+                "id": prog_id,
                 "nodes": nodes_data,
+                "link_plan": self.link_plans.get(prog_id),
                 "outputs": prog.outputs.iter().map(|(k, v)| serde_json::json!({"alias": sanitize_id(k), "real_id": sanitize_id(v)})).collect::<Vec<_>>()
             }));
             nodes_map.insert(prog_id.clone(), prog_nodes_map);
@@ -122,8 +123,7 @@ impl<'a> CodegenC<'a> {
         context.insert("programs", &programs_data);
         context.insert("nodes", &all_nodes);
         context.insert("nodes_map", &nodes_map);
-        context.insert("parameters", &self._manifest.parameters);
-        context.insert("mappings", &self._manifest.mappings);
+        context.insert("parameters", &self.parameters);
         
         Ok(GeneratedCode {
             module: self.tera.render("module", &context)?,

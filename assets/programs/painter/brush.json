@@ -5,13 +5,13 @@
     "ui": "assets/lib/ui"
   },
   "inputs": [
-    { "name": "uv", "dtype": "F32", "shape": ["HEIGHT", "WIDTH", 2] },
-    { "name": "mouse_raw", "dtype": "F32", "shape": [2] },
-    { "name": "mouse_prev_raw", "dtype": "F32", "shape": [2] },
-    { "name": "is_drawing", "dtype": "F32", "shape": [1] }
+    { "name": "uv", "dtype": "float", "shape": ["...", 2] },
+    { "name": "mouse_raw", "dtype": "float", "shape": [2] },
+    { "name": "mouse_prev_raw", "dtype": "float", "shape": [2] },
+    { "name": "is_drawing", "dtype": "float", "shape": [1] }
   ],
   "outputs": [
-    { "name": "output_node", "dtype": "F32", "shape": ["HEIGHT", "WIDTH", 4] }
+    { "name": "output_node", "dtype": "float", "shape": ["...", 4] }
   ],
   "nodes": [
     { "id": "mouse", "op": { "Reshape": { "new_shape": [1, 1, 2] } } },
@@ -22,15 +22,15 @@
     { "id": "stroke", "subgraph": "ui/brush_stroke" }
   ],
   "links": [
-    ["mouse_raw", "mouse.input"],
-    ["mouse_prev_raw", "mouse_prev.input"],
-    ["uv", "line_dist.uv"],
+    ["inputs.mouse_raw", "mouse.input"],
+    ["inputs.mouse_prev_raw", "mouse_prev.input"],
+    ["inputs.uv", "line_dist.uv"],
     ["mouse_prev.output", "line_dist.a"],
     ["mouse.output", "line_dist.b"],
     ["line_dist.output", "stroke.dist"],
     ["radius.output", "stroke.radius"],
     ["color.output", "stroke.color"],
-    ["is_drawing", "stroke.is_active"],
-    ["stroke.output", "output_node"]
+    ["inputs.is_drawing", "stroke.is_active"],
+    ["stroke.output", "outputs.output_node"]
   ]
 }

@@ -70,41 +70,50 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Inputs from mappings
-        {% for m in mappings -%}
-        {% if m.source.type == "MousePosition" -%}
-        buffer_{{ m.program }}_{{ m.tensor }}[0] = cur_x;
-        buffer_{{ m.program }}_{{ m.tensor }}[1] = cur_y;
-        {% elif m.source.type == "MousePositionPrev" -%}
-        buffer_{{ m.program }}_{{ m.tensor }}[0] = lst_x;
-        buffer_{{ m.program }}_{{ m.tensor }}[1] = lst_y;
-        {% elif m.source.type == "MouseButton" -%}
-        buffer_{{ m.program }}_{{ m.tensor }}[0] = lmb ? 1.0f : 0.0f;
-        {% elif m.source.type == "Time" -%}
-        buffer_{{ m.program }}_{{ m.tensor }}[0] = (SDL_GetTicks() - start_time) / 1000.0f;
-        {% elif m.source.type == "ScreenUV" -%}
+        // --- Handle System Inputs (Sources) ---
+        {% for prog in programs %}
+        {% for binding in prog.link_plan.bindings %}
+        {% if binding.source_type == "MousePosition" -%}
+        buffer_{{ prog.id }}_{{ binding.input_node_id }}[0] = cur_x;
+        buffer_{{ prog.id }}_{{ binding.input_node_id }}[1] = cur_y;
+        {% elif binding.source_type == "MousePositionPrev" -%}
+        buffer_{{ prog.id }}_{{ binding.input_node_id }}[0] = lst_x;
+        buffer_{{ prog.id }}_{{ binding.input_node_id }}[1] = lst_y;
+        {% elif binding.source_type == "MouseButton" -%}
+        buffer_{{ prog.id }}_{{ binding.input_node_id }}[0] = lmb ? 1.0f : 0.0f;
+        {% elif binding.source_type == "Time" -%}
+        buffer_{{ prog.id }}_{{ binding.input_node_id }}[0] = (SDL_GetTicks() - start_time) / 1000.0f;
+        {% elif binding.source_type == "ScreenUV" -%}
         PARALLEL
         for(int y = 0; y < HEIGHT; ++y) {
             for(int x = 0; x < WIDTH; ++x) {
                 int idx = (y * WIDTH + x) * 2;
-                buffer_{{ m.program }}_{{ m.tensor }}[idx + 0] = (float)x / (float)WIDTH;
-                buffer_{{ m.program }}_{{ m.tensor }}[idx + 1] = (float)y / (float)HEIGHT;
+                buffer_{{ prog.id }}_{{ binding.input_node_id }}[idx + 0] = (float)x / (float)WIDTH;
+                buffer_{{ prog.id }}_{{ binding.input_node_id }}[idx + 1] = (float)y / (float)HEIGHT;
             }
         }
-        {%- endif %}{%- endfor %}
+        {%- endif %}
+        {% endfor %}
+        {% endfor %}
 
-        // Links
-        {% for m in mappings -%}{% if m.source.type == "Link" -%}
-        memcpy(buffer_{{ m.program }}_{{ m.tensor }}, buffer_{{ m.source.program }}_{{ m.source.output }}, sizeof(float) * ({{ nodes_map[m.source.program][m.source.output].size }}));
-        {%- endif %}{%- endfor %}
+        // --- Handle Inter-program Links ---
+        {% for prog in programs %}
+        {% for link in prog.link_plan.inter_links %}
+        memcpy(buffer_{{ link.dst_prog }}_{{ link.dst_node }}, 
+               buffer_{{ link.src_prog }}_{{ link.src_node }}, 
+               sizeof(float) * ({{ nodes_map[link.src_prog][link.src_node].size }}));
+        {% endfor %}
+        {% endfor %}
 
         execute_all();
 
         lst_x = cur_x;
         lst_y = cur_y;
 
-        // Render to display
-        {% for m in mappings -%}{% if m.source.type == "Display" -%}
+        // --- Render to Display ---
+        {% for prog in programs %}
+        {% if prog.link_plan.display_source %}
+        {% set display = prog.link_plan.display_source %}
         void* pixels; int pitch;
         SDL_LockTexture(texture, NULL, &pixels, &pitch);
         PARALLEL
@@ -112,14 +121,15 @@ int main(int argc, char* argv[]) {
             uint32_t* row = (uint32_t*)((uint8_t*)pixels + y * pitch);
             for (int x = 0; x < WIDTH; ++x) {
                 int i = y * WIDTH + x;
-                float r = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 0];
-                float g = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 1];
-                float b = buffer_{{ m.program }}_{{ m.tensor }}[i * 4 + 2];
+                float r = buffer_{{ display.src_prog }}_{{ display.src_node }}[i * 4 + 0];
+                float g = buffer_{{ display.src_prog }}_{{ display.src_node }}[i * 4 + 1];
+                float b = buffer_{{ display.src_prog }}_{{ display.src_node }}[i * 4 + 2];
                 row[x] = (255u << 24) | (((uint8_t)(fmaxf(0.0f, fminf(r, 1.0f))*255)) << 16) | (((uint8_t)(fmaxf(0.0f, fminf(g, 1.0f))*255)) << 8) | ((uint8_t)(fmaxf(0.0f, fminf(b, 1.0f))*255));
             }
         }
         SDL_UnlockTexture(texture);
-        {% endif %}{%- endfor %}
+        {% endif %}
+        {% endfor %}
 
         SDL_RenderClear(renderer);
         SDL_RenderCopy(renderer, texture, NULL, NULL);
