@@ -19,6 +19,7 @@
     { "id": "one", "op": { "Constant": { "values": [1.0] } } },
     { "id": "mask", "subgraph": "math/clamp" },
     { "id": "active_mask", "op": "Mul" },
+    { "id": "active_mask_3d", "op": { "Reshape": { "new_shape": ["...", 1] } } },
     { "id": "colored_output", "op": "Mul" }
   ],
   "links": [
@@ -26,7 +27,8 @@
     ["inv_dist.output", "scaled_dist.left"], ["scale_val.output", "scaled_dist.right"],
     ["scaled_dist.output", "mask.input"], ["zero.output", "mask.min"], ["one.output", "mask.max"],
     ["mask.output", "active_mask.left"], ["inputs.is_active", "active_mask.right"],
-    ["inputs.color", "colored_output.left"], ["active_mask.output", "colored_output.right"],
+    ["active_mask.output", "active_mask_3d.input"],
+    ["inputs.color", "colored_output.left"], ["active_mask_3d.output", "colored_output.right"],
     ["colored_output.output", "outputs.output"]
   ]
 }

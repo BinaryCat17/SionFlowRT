@@ -1,23 +1,20 @@
 {
-  "window": {
-    "title": "SionFlow Painter",
-    "width": 1280,
-    "height": 720
-  },
   "parameters": {
-    "WIDTH": "window.width",
-    "HEIGHT": "window.height"
+    "WINDOW_TITLE": "SionFlow Painter",
+    "WINDOW_WIDTH": 1280,
+    "WINDOW_HEIGHT": 720
   },
+  "dynamic_parameters": ["WINDOW_WIDTH", "WINDOW_HEIGHT"],
   "type_mapping": {
     "float": "F32",
     "int": "I32"
   },
   "sources": {
-    "scr_uv": { "type": "ScreenUV", "shape": ["HEIGHT", "WIDTH", 2] },
+    "scr_uv": { "type": "ScreenUV", "shape": ["WINDOW_HEIGHT", "WINDOW_WIDTH", 2] },
     "mouse_cur": { "type": "MousePosition", "shape": [2] },
     "mouse_old": { "type": "MousePositionPrev", "shape": [2] },
     "is_drawing": { "type": "MouseButton", "shape": [1] },
-    "display": { "type": "Display", "shape": ["HEIGHT", "WIDTH", 4] }
+    "display": { "type": "Display", "shape": ["WINDOW_HEIGHT", "WINDOW_WIDTH", 4] }
   },
   "programs": [
     { "id": "brush", "path": "assets/programs/painter/brush.json" },
