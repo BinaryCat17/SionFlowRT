@@ -1,0 +1,51 @@
+#include <stdio.h>
+#include <math.h>
+#include <stdbool.h>
+#include "runtime.c"
+
+int main() {
+    int failed_tests = 0;
+    printf("SionFlowRT Test Runner starting...\n\n");
+
+    {% for test in tests %}
+    // Test: {{ test.name }}
+    {
+        printf("Running test: %s... ", "{{ test.name }}");
+        initialize_runtime();
+
+        {% for input in test.inputs -%}
+        {% for val in input.data -%}
+        resource_{{ input.id }}[{{ loop.index0 }}] = {{ val }};
+        {% endfor -%}
+        {% endfor %}
+
+        run_all_programs();
+
+        bool test_passed = true;
+        {% for output in test.outputs -%}
+        {% for item in output.expected_items -%}
+        if (fabs({{ output.buf_name }}[{{ item.idx }}] - {{ item.val }}) > 1e-5) {
+            if (test_passed) printf("FAILED!\n");
+            printf("  Error in {{ output.full_name }}[{{ item.idx }}]: expected %f, got %f\n", (double){{ item.val }}, (double){{ output.buf_name }}[{{ item.idx }}]);
+            test_passed = false;
+        }
+        {% endfor -%}
+        {% endfor %}
+
+        if (test_passed) {
+            printf("PASSED\n");
+        } else {
+            failed_tests++;
+        }
+        cleanup_runtime();
+    }
+    {% endfor %}
+
+    if (failed_tests == 0) {
+        printf("\nAll tests passed successfully!\n");
+        return 0;
+    } else {
+        printf("\n%d tests failed.\n", failed_tests);
+        return 1;
+    }
+}

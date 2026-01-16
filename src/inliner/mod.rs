@@ -5,6 +5,8 @@ pub mod paths;
 use crate::inliner::json::{JsonGraph};
 use crate::inliner::raw_ir::{RawIR, RawNode, RawEdge};
 use crate::inliner::paths::resolve_subgraph_path;
+use crate::manifest::Manifest;
+use crate::core::op::Op;
 use std::collections::HashMap;
 use std::path::{Path};
 use petgraph::graph::NodeIndex;
@@ -15,9 +17,41 @@ struct InterfaceMapping {
     outputs: HashMap<String, (NodeIndex, String)>,
 }
 
-pub fn load_and_inline(root_path: &Path) -> anyhow::Result<RawIR> {
+pub fn load_and_inline(
+    root_graph: JsonGraph,
+    base_path: &Path,
+    manifest: &Manifest,
+    synthetic_vars: &mut HashMap<String, String>,
+) -> anyhow::Result<RawIR> {
     let mut raw_ir = RawIR::new();
-    inline_recursive(root_path, "", &mut raw_ir)?;
+    let mapping = inline_recursive_graph(root_graph, base_path, "", &mut raw_ir, manifest, synthetic_vars)?;
+
+    // Bridge top-level inputs to the graph
+    for (port_name, consumers) in mapping.inputs {
+        let input_node = raw_ir.graph.add_node(RawNode {
+            id: format!("inputs.{}", port_name),
+            op: Op::Input { name: port_name.clone() },
+        });
+        for (dst_node, dst_port) in consumers {
+            raw_ir.graph.add_edge(input_node, dst_node, RawEdge {
+                src_port: "output".to_string(),
+                dst_port,
+            });
+        }
+    }
+
+    // Bridge top-level outputs to the graph
+    for (port_name, (src_node, src_port)) in mapping.outputs {
+        let output_node = raw_ir.graph.add_node(RawNode {
+            id: format!("outputs.{}", port_name),
+            op: Op::Output { name: port_name.clone() },
+        });
+        raw_ir.graph.add_edge(src_node, output_node, RawEdge {
+            src_port,
+            dst_port: "input".to_string(),
+        });
+    }
+
     Ok(raw_ir)
 }
 
@@ -25,11 +59,23 @@ fn inline_recursive(
     path: &Path,
     prefix: &str,
     raw_ir: &mut RawIR,
+    manifest: &Manifest,
+    synthetic_vars: &mut HashMap<String, String>,
 ) -> anyhow::Result<InterfaceMapping> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("Failed to read {}: {}", path.display(), e))?;
     let graph_def = JsonGraph::from_json(&content)?;
+    inline_recursive_graph(graph_def, path, prefix, raw_ir, manifest, synthetic_vars)
+}
 
+fn inline_recursive_graph(
+    graph_def: JsonGraph,
+    path: &Path,
+    prefix: &str,
+    raw_ir: &mut RawIR,
+    manifest: &Manifest,
+    synthetic_vars: &mut HashMap<String, String>,
+) -> anyhow::Result<InterfaceMapping> {
     if prefix.is_empty() {
         raw_ir.inputs = graph_def.inputs.clone();
         raw_ir.outputs = graph_def.outputs.clone();
@@ -53,12 +99,16 @@ fn inline_recursive(
             }
             
             let sub_full_path = resolve_subgraph_path(path, &actual_path_str);
-            let mapping = inline_recursive(&sub_full_path, &full_id, raw_ir)?;
+            let mapping = inline_recursive(&sub_full_path, &full_id, raw_ir, manifest, synthetic_vars)?;
             sub_mappings.insert(node_def.id.clone(), mapping);
-        } else if let Some(op) = &node_def.op {
+        } else if let Some(op_val) = &node_def.op {
+            let mut normalized_json = op_val.clone();
+            normalize_op_json(&mut normalized_json, manifest, synthetic_vars);
+            
+            let op = Op::from_json_value(&normalized_json)?;
             let node_idx = raw_ir.graph.add_node(RawNode {
                 id: full_id.clone(),
-                op: op.clone(),
+                op,
             });
             primitive_nodes.insert(node_def.id.clone(), node_idx);
         }
@@ -83,6 +133,37 @@ fn inline_recursive(
     }
 
     Ok(current_mapping)
+}
+
+fn normalize_op_json(
+    value: &mut serde_json::Value, 
+    manifest: &Manifest,
+    synthetic_vars: &mut HashMap<String, String>
+) {
+    if value.is_object() {
+        if let Ok(op) = serde_json::from_value::<crate::inliner::json::JsonDimOp>(value.clone()) {
+            let resolved_dim = crate::analyzer::process_json_dim(
+                &crate::inliner::json::JsonDim::Op(op), 
+                synthetic_vars, 
+                manifest
+            );
+            *value = match resolved_dim {
+                crate::core::types::Dim::Variable(var_name) => serde_json::Value::String(var_name),
+                crate::core::types::Dim::Static(val) => serde_json::Value::Number(val.into()),
+            };
+            return;
+        }
+    }
+
+    if let Some(obj) = value.as_object_mut() {
+        for v in obj.values_mut() {
+            normalize_op_json(v, manifest, synthetic_vars);
+        }
+    } else if let Some(arr) = value.as_array_mut() {
+        for v in arr {
+            normalize_op_json(v, manifest, synthetic_vars);
+        }
+    }
 }
 
 fn resolve_source(

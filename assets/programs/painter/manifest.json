@@ -1,10 +1,9 @@
 {
   "parameters": {
-    "WINDOW_TITLE": "SionFlow Painter",
-    "WINDOW_WIDTH": 1280,
-    "WINDOW_HEIGHT": 720
+    "WINDOW_TITLE": { "value": "SionFlow Painter" },
+    "WINDOW_WIDTH": { "value": 1280, "type": "dynamic" },
+    "WINDOW_HEIGHT": { "value": 720, "type": "dynamic" }
   },
-  "dynamic_parameters": ["WINDOW_WIDTH", "WINDOW_HEIGHT"],
   "type_mapping": {
     "float": "F32",
     "int": "I32"

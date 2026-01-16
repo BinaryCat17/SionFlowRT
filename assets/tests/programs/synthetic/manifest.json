@@ -1,0 +1,16 @@
+{
+  "parameters": {
+    "BASE": { "value": 100, "type": "dynamic" }
+  },
+  "sources": {
+    "input": { "shape": ["BASE"] },
+    "output": { "shape": [{ "Mul": ["BASE", 2] }] }
+  },
+  "programs": [
+    { "id": "syn_prog", "path": "assets/tests/programs/synthetic/graph.json" }
+  ],
+  "links": [
+    ["sources.input", "syn_prog.in_data"],
+    ["syn_prog.out_data", "sources.output"]
+  ]
+}

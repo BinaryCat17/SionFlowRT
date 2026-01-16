@@ -55,9 +55,15 @@ impl Shape {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Port {
     pub name: String,
+    pub shape: Shape,
+    pub dtype: DataType,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkspaceSlot {
     pub shape: Shape,
     pub dtype: DataType,
 }

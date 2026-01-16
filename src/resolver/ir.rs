@@ -20,5 +20,5 @@ pub struct ResolvedEdge {
 pub struct ResolvedIR {
     pub graph: DiGraph<ResolvedNode, ResolvedEdge>,
     pub inputs: Vec<Port>,
-    pub outputs: std::collections::HashMap<String, String>,
+    pub outputs: Vec<Port>, // Changed from HashMap for consistency
 }

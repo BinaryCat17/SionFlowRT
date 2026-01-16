@@ -1,10 +1,10 @@
+use crate::core::op::Op;
 use petgraph::graph::DiGraph;
-use serde_json::Value;
 
 #[derive(Debug, Clone)]
 pub struct RawNode {
     pub id: String,
-    pub op: Value,
+    pub op: Op,
 }
 
 #[derive(Debug, Clone)]

@@ -1,16 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use crate::core::types::DataType;
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Manifest {
-    pub parameters: Option<HashMap<String, serde_json::Value>>,
-    pub dynamic_parameters: Option<Vec<String>>,
-    pub type_mapping: Option<HashMap<String, DataType>>,
-    pub sources: HashMap<String, SourceDef>,
-    pub programs: Vec<ProgramDef>,
-    pub links: Vec<(String, String)>,
-}
+use std::collections::BTreeMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SourceDef {
@@ -23,6 +12,24 @@ pub struct SourceDef {
 pub struct ProgramDef {
     pub id: String,
     pub path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Test {
+    pub name: String,
+    pub inputs: BTreeMap<String, Vec<f32>>,
+    pub expected: BTreeMap<String, Vec<f32>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Manifest {
+    pub sources: BTreeMap<String, SourceDef>,
+    pub programs: Vec<ProgramDef>,
+    pub links: Vec<(String, String)>,
+    #[serde(default)]
+    pub tests: Vec<Test>,
+    #[serde(default)]
+    pub parameters: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 impl Manifest {

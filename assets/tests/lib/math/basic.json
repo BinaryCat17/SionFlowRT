@@ -1,0 +1,17 @@
+{
+  "inputs": [
+    { "name": "a", "dtype": "float", "shape": ["WIDTH"] },
+    { "name": "b", "dtype": "float", "shape": ["WIDTH"] }
+  ],
+  "outputs": [
+    { "name": "output", "dtype": "float", "shape": ["WIDTH"] }
+  ],
+  "nodes": [
+    { "id": "sum", "op": "Add" }
+  ],
+  "links": [
+    ["inputs.a", "sum.left"],
+    ["inputs.b", "sum.right"],
+    ["sum.output", "outputs.output"]
+  ]
+}

@@ -1,0 +1,96 @@
+#include <stdint.h>
+#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* --- Variables --- */
+{% for var in vars -%}
+int32_t {{ var }} = 0;
+{% endfor %}
+
+/* --- Declarations --- */
+{% for prog in programs -%}
+void {{ prog.id }}(
+    void** workspace,
+    {%- for input in prog.inputs %}const float* restrict in_{{ input }}, {% endfor -%}
+    {%- for output in prog.outputs %}float* restrict out_{{ output }}{% if not loop.last %}, {% endif %}{% endfor -%}
+);
+#include "{{ prog.id }}.c"
+{% endfor %}
+
+/* --- Resources --- */
+{% for res in resources -%}
+static {{ res.dtype }}* resource_{{ res.id }} = NULL;
+{% endfor %}
+
+/* --- Buffers --- */
+{% for prog in programs -%}
+    {%- for port in prog.outputs_ports -%}
+static {{ port.dtype }}* buf_{{ prog.id }}_{{ port.id }} = NULL;
+    {% endfor -%}
+{% endfor %}
+
+/* --- Workspaces --- */
+{% for prog in programs -%}
+static void* workspace_{{ prog.id }}[{{ prog.workspace_size }}];
+{% endfor %}
+
+void reallocate_buffers() {
+    /* Synthetic Variables */
+    {%- for pair in synthetic_vars %}
+    {{ pair.0 }} = {{ pair.1 }};
+    {%- endfor %}
+    
+    /* Resources */
+    {%- for res in resources %}
+    resource_{{ res.id }} = ({{ res.dtype }}*)realloc(resource_{{ res.id }}, sizeof({{ res.dtype }}) * ({{ res.size_expr }}));
+    {%- endfor %}
+
+    /* Inter-program Buffers */
+    {%- for prog in programs %}
+        {%- for port in prog.outputs_ports %}
+    buf_{{ prog.id }}_{{ port.id }} = ({{ port.dtype }}*)realloc(buf_{{ prog.id }}_{{ port.id }}, sizeof({{ port.dtype }}) * ({{ port.size_expr }}));
+        {%- endfor %}
+    {%- endfor %}
+    
+    /* Workspaces */
+    {%- for prog in programs %}
+        {%- for slot in prog.workspace_slots %}
+    workspace_{{ prog.id }}[{{ loop.index0 }}] = realloc(workspace_{{ prog.id }}[{{ loop.index0 }}], sizeof({{ slot.dtype }}) * ({{ slot.size_expr }}));
+        {%- endfor %}
+    {%- endfor %}
+}
+
+void initialize_runtime() {
+    reallocate_buffers();
+}
+
+void run_all_programs() {
+    reallocate_buffers();
+
+    {%- for prog in programs %}
+    {{ prog.id }}(
+        workspace_{{ prog.id }},
+        {%- for arg in prog.call_args %}{{ arg }}{% if not loop.last %}, {% endif %}{% endfor -%}
+    );
+    {%- endfor %}
+
+    /* Sync back to resources if needed */
+    {%- for sync in sync_back %}
+    memcpy(resource_{{ sync.res_id }}, buf_{{ sync.src_prog }}_{{ sync.src_port }}, sizeof({{ sync.dtype }}) * ({{ sync.size_expr }}));
+    {%- endfor %}
+}
+
+void cleanup_runtime() {
+    {%- for res in resources %}
+    free(resource_{{ res.id }}); resource_{{ res.id }} = NULL;
+    {%- endfor %}
+    {%- for prog in programs %}
+        {%- for port in prog.outputs_ports %}
+    free(buf_{{ prog.id }}_{{ port.id }}); buf_{{ prog.id }}_{{ port.id }} = NULL;
+        {%- endfor %}
+        {%- for i in range(end=prog.workspace_size) %}
+    free(workspace_{{ prog.id }}[{{ i }}]); workspace_{{ prog.id }}[{{ i }}] = NULL;
+        {%- endfor %}
+    {%- endfor %}
+}

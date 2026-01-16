@@ -1,0 +1,22 @@
+{
+  "inputs": [
+    { "name": "input" }
+  ],
+  "outputs": [
+    { "name": "left" },
+    { "name": "right" }
+  ],
+  "nodes": [
+    {
+      "id": "splitter",
+      "op": { "Split": { "axis": 0, "parts": 2 } },
+      "links": [
+        ["inputs.input", "splitter.input"]
+      ]
+    }
+  ],
+  "links": [
+    ["splitter.0", "outputs.left"],
+    ["splitter.1", "outputs.right"]
+  ]
+}

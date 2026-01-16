@@ -1,0 +1,20 @@
+{
+  "imports": {
+    "math": "assets/tests/lib/math"
+  },
+  "inputs": [
+    { "name": "in_a", "dtype": "float", "shape": ["WIDTH"] },
+    { "name": "in_b", "dtype": "float", "shape": ["WIDTH"] }
+  ],
+  "outputs": [
+    { "name": "out_res", "dtype": "float", "shape": ["WIDTH"] }
+  ],
+  "nodes": [
+    { "id": "calc", "subgraph": "math/basic" }
+  ],
+  "links": [
+    ["inputs.in_a", "calc.a"],
+    ["inputs.in_b", "calc.b"],
+    ["calc.output", "outputs.out_res"]
+  ]
+}

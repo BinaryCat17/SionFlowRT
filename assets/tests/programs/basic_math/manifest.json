@@ -1,0 +1,25 @@
+{
+    "sources": {
+        "A": { "shape": [1] },
+        "B": { "shape": [1] }
+    },
+    "programs": [
+        { "id": "math_prog", "path": "graph.json" }
+    ],
+    "links": [
+        ["sources.A", "math_prog.a"],
+        ["sources.B", "math_prog.b"]
+    ],
+    "tests": [
+        {
+            "name": "addition_test",
+            "inputs": {
+                "A": [2.0],
+                "B": [3.0]
+            },
+            "expected": {
+                "math_prog.out_res": [5.0]
+            }
+        }
+    ]
+}

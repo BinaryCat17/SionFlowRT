@@ -10,6 +10,11 @@ pub enum JsonDim {
     #[serde(rename = "...")]
     Ellipsis,
     Symbol(String),
+    Op(JsonDimOp),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub enum JsonDimOp {
     Add(Box<JsonDim>, Box<JsonDim>),
     Sub(Box<JsonDim>, Box<JsonDim>),
     Mul(Box<JsonDim>, Box<JsonDim>),

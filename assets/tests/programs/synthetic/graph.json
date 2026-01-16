@@ -1,0 +1,15 @@
+{
+  "inputs": [
+    { "name": "in_data", "dtype": "float", "shape": ["BASE"] }
+  ],
+  "outputs": [
+    { "name": "out_data", "dtype": "float", "shape": [{ "Mul": ["BASE", 2] }] }
+  ],
+  "nodes": [
+    { "id": "reshape", "op": { "Reshape": { "new_shape": [{ "Mul": ["BASE", 2] }] } } }
+  ],
+  "links": [
+    ["inputs.in_data", "reshape.input"],
+    ["reshape.output", "outputs.out_data"]
+  ]
+}
