@@ -10,7 +10,7 @@ int32_t {{ var }} = 0;
 
 /* --- Declarations --- */
 {% for prog in programs -%}
-void {{ prog.id }}(
+void {{ prog.id }}_func(
     void** workspace,
     {%- for input in prog.inputs %}const float* restrict in_{{ input }}, {% endfor -%}
     {%- for output in prog.outputs %}float* restrict out_{{ output }}{% if not loop.last %}, {% endif %}{% endfor -%}
@@ -69,7 +69,7 @@ void run_all_programs() {
     reallocate_buffers();
 
     {%- for prog in programs %}
-    {{ prog.id }}(
+    {{ prog.id }}_func(
         workspace_{{ prog.id }},
         {%- for arg in prog.call_args %}{{ arg }}{% if not loop.last %}, {% endif %}{% endfor -%}
     );

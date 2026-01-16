@@ -5,7 +5,7 @@ use crate::core::utils::sanitize_id;
 use std::collections::{HashSet};
 use tera::{Tera, Context};
 
-pub fn generate_test_runner(_plan: &ProjectPlan, tests: &[Test]) -> String {
+pub fn generate_test_runner(plan: &ProjectPlan, tests: &[Test]) -> String {
     let mut tera = Tera::default();
     tera.add_raw_template("test_runner", include_str!("../../templates/test_runner.c.tera")).unwrap();
 
@@ -15,24 +15,36 @@ pub fn generate_test_runner(_plan: &ProjectPlan, tests: &[Test]) -> String {
     for test in tests {
         let mut inputs = Vec::new();
         for (name, data) in &test.inputs {
+            // Find which resource is linked to this program input
+            let target_addr = "PROG.PORT".replace("PROG", &test.program).replace("PORT", name);
+            let mut resource_id = name.clone(); // Fallback
+            for (src_addr, dst_addr) in &plan.links {
+                if dst_addr == &target_addr {
+                    if let Some(res_id) = src_addr.strip_prefix("sources.") {
+                        resource_id = res_id.to_string();
+                    }
+                    break;
+                }
+            }
+
             let mut formatted_data = Vec::new();
             for val in data {
                 formatted_data.push(if val.fract() == 0.0 { format!("{}.0f", val) } else { format!("{}f", val) });
             }
             inputs.push(serde_json::json!({
-                "id": sanitize_id(name),
+                "id": sanitize_id(&resource_id),
                 "data": formatted_data
             }));
         }
+// ...
+
 
         let mut outputs = Vec::new();
         for (name, expected) in &test.expected {
             let sanitized = sanitize_id(name);
-            let buf_name = if name.contains('.') {
-                format!("buf_{}", sanitized)
-            } else {
-                format!("resource_{}", sanitized)
-            };
+            let buf_name = "buf_PROG_PORT"
+                .replace("PROG", &sanitize_id(&test.program))
+                .replace("PORT", &sanitized);
             
             let mut expected_items = Vec::new();
             for (idx, val) in expected.iter().enumerate() {

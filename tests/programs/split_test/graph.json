@@ -1,0 +1,21 @@
+{
+  "inputs": [ { "name": "in_data" } ],
+  "outputs": [
+    { "name": "part1" },
+    { "name": "part2" }
+  ],
+  "imports": {
+    "math/": "assets/lib/math/"
+  },
+  "nodes": [
+    {
+      "id": "my_split",
+      "subgraph": "math/split.json"
+    }
+  ],
+  "links": [
+    ["inputs.in_data", "my_split.input"],
+    ["my_split.left", "outputs.part1"],
+    ["my_split.right", "outputs.part2"]
+  ]
+}

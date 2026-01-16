@@ -7,7 +7,7 @@
     "output": { "shape": [{ "Mul": ["BASE", 2] }] }
   },
   "programs": [
-    { "id": "syn_prog", "path": "assets/tests/programs/synthetic/graph.json" }
+    { "id": "syn_prog", "path": "graph.json" }
   ],
   "links": [
     ["sources.input", "syn_prog.in_data"],

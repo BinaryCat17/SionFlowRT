@@ -17,6 +17,7 @@ pub struct ProgramDef {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Test {
     pub name: String,
+    pub program: String,
     pub inputs: BTreeMap<String, Vec<f32>>,
     pub expected: BTreeMap<String, Vec<f32>>,
 }

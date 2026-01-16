@@ -1,6 +1,6 @@
 {
   "imports": {
-    "math": "assets/tests/lib/math"
+    "math": "tests/lib/math"
   },
   "inputs": [
     { "name": "in_a", "dtype": "float", "shape": ["WIDTH"] },

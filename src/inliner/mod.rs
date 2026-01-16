@@ -29,7 +29,7 @@ pub fn load_and_inline(
     // Bridge top-level inputs to the graph
     for (port_name, consumers) in mapping.inputs {
         let input_node = raw_ir.graph.add_node(RawNode {
-            id: format!("inputs.{}", port_name),
+            id: "inputs.NAME".replace("NAME", &port_name),
             op: Op::Input { name: port_name.clone() },
         });
         for (dst_node, dst_port) in consumers {
@@ -43,7 +43,7 @@ pub fn load_and_inline(
     // Bridge top-level outputs to the graph
     for (port_name, (src_node, src_port)) in mapping.outputs {
         let output_node = raw_ir.graph.add_node(RawNode {
-            id: format!("outputs.{}", port_name),
+            id: "outputs.NAME".replace("NAME", &port_name),
             op: Op::Output { name: port_name.clone() },
         });
         raw_ir.graph.add_edge(src_node, output_node, RawEdge {
@@ -85,7 +85,7 @@ fn inline_recursive_graph(
     let mut primitive_nodes: HashMap<String, NodeIndex> = HashMap::new();
 
     for node_def in &graph_def.nodes {
-        let full_id = if prefix.is_empty() { node_def.id.clone() } else { format!("{}/{}", prefix, node_def.id) };
+        let full_id = if prefix.is_empty() { node_def.id.clone() } else { "PRE/ID".replace("PRE", prefix).replace("ID", &node_def.id) };
 
         if let Some(sub_path_raw) = &node_def.subgraph {
             let mut actual_path_str = sub_path_raw.clone();

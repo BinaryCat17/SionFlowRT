@@ -1,0 +1,30 @@
+{
+  "parameters": {},
+  "sources": {
+    "input_tensor": {
+      "shape": [4]
+    }
+  },
+  "programs": [
+    {
+      "id": "split_prog",
+      "path": "graph.json"
+    }
+  ],
+  "links": [
+    ["sources.input_tensor", "split_prog.in_data"]
+  ],
+  "tests": [
+    {
+      "name": "split_basic_test",
+      "program": "split_prog",
+      "inputs": {
+        "in_data": [1.0, 2.0, 3.0, 4.0]
+      },
+      "expected": {
+        "part1": [1.0, 2.0],
+        "part2": [3.0, 4.0]
+      }
+    }
+  ]
+}

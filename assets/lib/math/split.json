@@ -9,13 +9,11 @@
   "nodes": [
     {
       "id": "splitter",
-      "op": { "Split": { "axis": 0, "parts": 2 } },
-      "links": [
-        ["inputs.input", "splitter.input"]
-      ]
+      "op": { "Split": { "axis": 0, "parts": 2 } }
     }
   ],
   "links": [
+    ["inputs.input", "splitter.input"],
     ["splitter.0", "outputs.left"],
     ["splitter.1", "outputs.right"]
   ]
